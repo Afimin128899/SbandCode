@@ -1,6 +1,11 @@
 name: Build SbandCode APK
 'on':
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/build-apk.yml'
+      - 'engine/build-llama.sh'
 
 permissions:
   contents: read
