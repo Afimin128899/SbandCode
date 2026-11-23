@@ -88,13 +88,35 @@ class Brain(app: Application) : AndroidViewModel(app) {
     var messages by mutableStateOf<List<Message>>(emptyList())
         private set
     val busy = mutableStateMapOf<String, Boolean>()
-    private data class FollowUp(val text: String, val pictures: List<String>)
+    data class FollowUp(val text: String, val pictures: List<String>, val key: String = UUID.randomUUID().toString())
     private val followUps = mutableStateMapOf<String, List<FollowUp>>()
     private val posting = mutableStateMapOf<String, Boolean>()
     private val pausedFollowUps = mutableStateMapOf<String, Boolean>()
 
     fun isRunning(id: String) = busy[id] == true || posting[id] == true
-    fun followUpCount(id: String?) = followUps[id].orEmpty().size
+    fun pendingFollowUps(id: String?) = followUps[id].orEmpty()
+    fun followUpCount(id: String?) = pendingFollowUps(id).size
+
+    fun editFollowUp(id: String, key: String, text: String) {
+        followUps[id] = pendingFollowUps(id).map { item ->
+            if (item.key == key && (text.isNotBlank() || item.pictures.isNotEmpty())) item.copy(text = text)
+            else item
+        }
+    }
+
+    fun removeFollowUp(id: String, key: String) {
+        val remaining = pendingFollowUps(id).filterNot { it.key == key }
+        if (remaining.isEmpty()) clearFollowUps(id) else followUps[id] = remaining
+    }
+
+    fun moveFollowUpUp(id: String, key: String) {
+        val pending = pendingFollowUps(id).toMutableList()
+        val index = pending.indexOfFirst { it.key == key }
+        if (index < 1) return
+        val item = pending.removeAt(index)
+        pending.add(index - 1, item)
+        followUps[id] = pending
+    }
     fun canRetryFollowUps(id: String) = pausedFollowUps[id] == true && !isRunning(id)
 
     fun clearFollowUps(id: String) {
