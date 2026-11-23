@@ -545,7 +545,7 @@ private fun Composer(
                 if (model?.images == true && editing == null) IconButton({
                     pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                 }) { Icon(Icons.Outlined.AddPhotoAlternate, tr("Картинка", "Picture")) }
-                if (model != null && model.variants.isNotEmpty()) ThinkingChip(brain)
+                if (model != null && model.variants.isNotEmpty()) ThinkingChip(brain, enabled = !running)
                 if (model != null && brain.isLocal(model)) {
                     val tools = brain.prefs.localTools
                     Surface(
@@ -575,25 +575,42 @@ private fun Composer(
 }
 
 @Composable
-private fun ThinkingChip(brain: Brain) {
+private fun ThinkingChip(brain: Brain, enabled: Boolean) {
     val model = brain.currentModel() ?: return
     var menu by remember { mutableStateOf(false) }
     val now = brain.variantOf(model)
+    val fast = listOf("low", "minimal", "none").firstOrNull { it in model.variants }
+    val extra = listOf("max", "xhigh", "high").firstOrNull { it in model.variants }
+    val presets = listOf(
+        "" to tr("Обычное", "Normal"),
+        fast to tr("Быстрое", "Fast"),
+        extra to tr("Экстра", "Extra"),
+    )
+    val selectedLabel = presets.firstOrNull { it.first == now }?.second ?: thinkingLabel(now)
     Box {
         Surface(
             color = if (now.isEmpty()) Color.Transparent else MaterialTheme.colorScheme.secondaryContainer,
             shape = RoundedCornerShape(18.dp),
-            modifier = Modifier.clip(RoundedCornerShape(18.dp)).clickable { menu = true },
+            modifier = Modifier.clip(RoundedCornerShape(18.dp)).clickable(enabled = enabled) { menu = true },
         ) {
             Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.Psychology, null, Modifier.size(18.dp))
-                Text(thinkingLabel(now), style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 6.dp))
+                Text(selectedLabel, style = MaterialTheme.typography.labelLarge, modifier = Modifier.padding(start = 6.dp))
             }
         }
         DropdownMenu(menu, { menu = false }) {
-            Text(tr("Размышления", "Thinking"), style = MaterialTheme.typography.labelMedium,
+            Text(tr("Режим ответа", "Response mode"), style = MaterialTheme.typography.labelMedium,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(horizontal = 16.dp, vertical = 6.dp))
-            for (v in listOf("") + model.variants) DropdownMenuItem(
+            for ((variant, label) in presets) DropdownMenuItem(
+                text = { Text(label, fontWeight = if (variant == now) FontWeight.Bold else FontWeight.Normal) },
+                enabled = enabled && variant != null,
+                onClick = {
+                    if (variant != null) brain.setVariant(model, variant)
+                    menu = false
+                },
+            )
+            for (v in model.variants.filterNot { it == fast || it == extra }) DropdownMenuItem(
+                enabled = enabled,
                 text = { Text(thinkingLabel(v), fontWeight = if (v == now) FontWeight.Bold else FontWeight.Normal) },
                 onClick = { brain.setVariant(model, v); menu = false },
             )
