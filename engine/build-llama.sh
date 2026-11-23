@@ -26,7 +26,7 @@ for variant in base i8mm; do
         -DCMAKE_TOOLCHAIN_FILE="$NDK/build/cmake/android.toolchain.cmake" -DANDROID_ABI=arm64-v8a -DANDROID_PLATFORM=android-28 \
         -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIBS=OFF -DLLAMA_CURL=OFF -DLLAMA_OPENSSL=OFF -DGGML_OPENMP=OFF \
         -DGGML_NATIVE=OFF -DGGML_CPU_ARM_ARCH=$arch -DLLAMA_SUBPROCESS=ON "-DCMAKE_CXX_FLAGS=-DSUBPROCESS_HAVE_CWD=0" "-DCMAKE_C_FLAGS=-DSUBPROCESS_HAVE_CWD=0" \
-        -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=ON -DLLAMA_BUILD_SERVER=ON || { echo "cmake failed for $variant" >&2; exit 1; }
+        -DLLAMA_BUILD_TESTS=OFF -DLLAMA_BUILD_EXAMPLES=OFF -DLLAMA_BUILD_TOOLS=ON -DLLAMA_BUILD_SERVER=ON -DLLAMA_BUILD_UI=OFF -DLLAMA_USE_PREBUILT_UI=OFF || { echo "cmake failed for $variant" >&2; exit 1; }
     cmake --build "build-$variant" --target llama-server --parallel "${CMAKE_BUILD_PARALLEL_LEVEL:-4}" || { echo "cmake failed for $variant" >&2; exit 1; }
     "$NDK/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip" -o "$out/$name" "build-$variant/bin/llama-server"
 done
