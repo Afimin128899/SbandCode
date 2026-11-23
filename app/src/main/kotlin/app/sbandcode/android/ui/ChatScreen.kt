@@ -25,6 +25,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
@@ -35,6 +36,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
@@ -129,6 +131,7 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
     val model = brain.currentModel()
     val running = id != null && brain.isRunning(id)
     var picker by remember { mutableStateOf(false) }
+    var showQueue by remember(id) { mutableStateOf(false) }
     var text by remember(id) { mutableStateOf("") }
     val pictures = remember(id) { mutableStateListOf<String>() }
     var editing by remember(id) { mutableStateOf<Message?>(null) }
@@ -211,11 +214,9 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
                 Modifier.fillMaxWidth().padding(horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                Text(
-                    tr("Дополнений в очереди: $queued", "Follow-ups queued: $queued"),
-                    Modifier.weight(1f),
-                    style = MaterialTheme.typography.labelMedium,
-                )
+                TextButton({ showQueue = true }, Modifier.weight(1f)) {
+                    Text(tr("Дополнений в очереди: $queued", "Follow-ups queued: $queued"))
+                }
                 if (brain.canRetryFollowUps(id)) {
                     TextButton({ brain.retryFollowUps(id) }) { Text(tr("Повторить", "Retry")) }
                 }
@@ -249,6 +250,7 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
     }
 
     if (picker) ModelSheet(brain) { picker = false }
+    if (showQueue && id != null) FollowUpQueue(brain, id) { showQueue = false }
     Asks(brain)
     brain.notice?.let { n ->
         AlertDialog(
@@ -258,6 +260,74 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
             confirmButton = { TextButton({ brain.notice = null }) { Text("OK") } },
         )
     }
+}
+
+@Composable
+private fun FollowUpQueue(brain: Brain, id: String, dismiss: () -> Unit) {
+    val pending = brain.pendingFollowUps(id)
+    var editingKey by remember { mutableStateOf<String?>(null) }
+    var draft by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = dismiss,
+        title = { Text(tr("Очередь дополнений", "Follow-up queue")) },
+        text = {
+            if (pending.isEmpty()) {
+                Text(tr("Очередь пуста", "The queue is empty"))
+            } else {
+                LazyColumn(
+                    modifier = Modifier.heightIn(max = 360.dp),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    itemsIndexed(pending, key = { _, item -> item.key }) { index, item ->
+                        Column {
+                            if (editingKey == item.key) {
+                                TextField(
+                                    value = draft,
+                                    onValueChange = { draft = it },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    label = { Text(tr("Текст дополнения", "Follow-up message")) },
+                                    maxLines = 5,
+                                )
+                            } else if (item.text.isNotBlank()) {
+                                Text(item.text)
+                            }
+                            if (item.pictures.isNotEmpty()) {
+                                val count = item.pictures.size
+                                Text(
+                                    tr("Изображений: $count", "Images: $count"),
+                                    style = MaterialTheme.typography.labelMedium,
+                                )
+                            }
+                            Row {
+                                if (editingKey == item.key) {
+                                    TextButton(
+                                        onClick = {
+                                            brain.editFollowUp(id, item.key, draft)
+                                            editingKey = null
+                                        },
+                                        enabled = draft.isNotBlank() || item.pictures.isNotEmpty(),
+                                    ) { Text(tr("Сохранить", "Save")) }
+                                    TextButton({ editingKey = null }) { Text(tr("Отмена", "Cancel")) }
+                                } else {
+                                    TextButton({ draft = item.text; editingKey = item.key }) {
+                                        Text(tr("Править", "Edit"))
+                                    }
+                                    TextButton({ brain.moveFollowUpUp(id, item.key) }, enabled = index > 0) {
+                                        Text(tr("Выше", "Up"))
+                                    }
+                                    TextButton({ brain.removeFollowUp(id, item.key) }) {
+                                        Text(tr("Удалить", "Remove"))
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = { TextButton(dismiss) { Text(tr("Закрыть", "Close")) } },
+    )
 }
 
 @Composable
