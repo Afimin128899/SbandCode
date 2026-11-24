@@ -685,24 +685,50 @@ class Brain(app: Application) : AndroidViewModel(app) {
 
     // ---- export and import, in opencode's own transfer format ----
 
-    suspend fun exportSession(id: String, to: Uri) {
-        val data = api.get("/api/experimental/session/$id/export").getJSONObject("data")
-        withContext(Dispatchers.IO) {
-            ctx.contentResolver.openOutputStream(to, "wt")!!.use { it.write(data.toString(1).toByteArray()) }
+    private suspend fun sessionExport(id: String): JSONObject =
+        api.get("/api/experimental/session/${Api.enc(id)}/export").getJSONObject("data")
+
+    private suspend fun writeExport(to: Uri, text: String) = withContext(Dispatchers.IO) {
+        val output = ctx.contentResolver.openOutputStream(to, "wt") ?: error(tr("Файл недоступен", "File unavailable"))
+        output.bufferedWriter(Charsets.UTF_8).use { it.write(text) }
+    }
+
+    suspend fun exportSession(id: String, to: Uri) = writeExport(to, sessionExport(id).toString(1))
+
+    private suspend fun readExport(from: Uri, maxChars: Int? = null): JSONObject = withContext(Dispatchers.IO) {
+        val input = ctx.contentResolver.openInputStream(from) ?: error(tr("Файл недоступен", "File unavailable"))
+        input.bufferedReader(Charsets.UTF_8).use { reader ->
+            val text = if (maxChars == null) reader.readText() else {
+                val buffer = CharArray(8192)
+                val content = StringBuilder()
+                while (true) {
+                    val count = reader.read(buffer)
+                    if (count < 0) break
+                    check(content.length + count <= maxChars) { tr("Файл резервной копии слишком большой", "Backup file is too large") }
+                    content.append(buffer, 0, count)
+                }
+                content.toString()
+            }
+            JSONObject(text)
         }
     }
 
+    private suspend fun restoreSession(chat: JSONObject, directory: String): JSONObject =
+        api.post("/api/experimental/session/import", jsonOf(
+            "info" to chat.getJSONObject("info"),
+            "messages" to chat.getJSONArray("messages"),
+            "location" to jsonOf("directory" to directory),
+        ))
+
     fun importSession(from: Uri) = viewModelScope.launch {
         guard {
-            val text = withContext(Dispatchers.IO) {
-                ctx.contentResolver.openInputStream(from)!!.use { it.readBytes().toString(Charsets.UTF_8) }
+            val file = readExport(from)
+            val chat = file.optJSONObject("data") ?: file
+            check(chat.has("info") && chat.has("messages")) {
+                tr("Это не выгрузка диалога opencode", "This isn't an opencode chat export")
             }
-            val o = JSONObject(text).let { it.optJSONObject("data") ?: it }
-            if (!o.has("info") || !o.has("messages")) error(tr("Это не выгрузка диалога opencode", "This isn't an opencode chat export"))
-            val body = jsonOf("info" to o.getJSONObject("info"), "messages" to o.getJSONArray("messages"),
-                "location" to jsonOf("directory" to folder().absolutePath))
             val made = try {
-                api.post("/api/experimental/session/import", body)
+                restoreSession(chat, folder().absolutePath)
             } catch (e: ApiError) {
                 if (e.code == 409) error(tr("Этот диалог уже есть в приложении", "This chat is already in the app")) else throw e
             }
@@ -710,6 +736,59 @@ class Brain(app: Application) : AndroidViewModel(app) {
             made.optJSONObject("data")?.str("id")?.let { openSession(it) }
         }
     }
+
+    suspend fun exportChatBackup(to: Uri): Int {
+        loadSessions()
+        val ids = sessions.map { it.id }
+        val content = StringBuilder("{\"format\":\"sbandcode-chats-v1\",\"chats\":[")
+        for ((index, id) in ids.withIndex()) {
+            val chat = sessionExport(id).toString()
+            check(content.length + chat.length + 3 <= backupCharLimit) {
+                tr("Резервная копия слишком большая. Экспортируйте крупные чаты по отдельности.",
+                    "The backup is too large. Export large chats separately.")
+            }
+            if (index != 0) content.append(',')
+            content.append(chat)
+        }
+        writeExport(to, content.append("]}").toString())
+        return ids.size
+    }
+
+    data class RestoredChats(val added: Int, val skipped: Int)
+
+    suspend fun importChatBackup(from: Uri): RestoredChats {
+        val backup = readExport(from, backupCharLimit)
+        val chats = backup.optJSONArray("chats")
+        check(backup.str("format") == "sbandcode-chats-v1" && chats != null) {
+            tr("Это не резервная копия SbandCode", "This isn't a SbandCode backup")
+        }
+        val entries = (0 until chats.length()).map { index ->
+            val chat = chats.getJSONObject(index)
+            check(chat.optJSONObject("info")?.str("id") != null && chat.optJSONArray("messages") != null) {
+                tr("В копии есть повреждённый диалог", "The backup contains an invalid chat")
+            }
+            chat
+        }
+        val directory = folder().absolutePath
+        var added = 0
+        var skipped = 0
+        try {
+            for (chat in entries) {
+                try {
+                    restoreSession(chat, directory)
+                    added++
+                } catch (e: ApiError) {
+                    if (e.code != 409) throw e
+                    skipped++
+                }
+            }
+        } finally {
+            loadSessions()
+        }
+        return RestoredChats(added, skipped)
+    }
+
+    private val backupCharLimit = 16 * 1024 * 1024
 
     // ---- providers ----
 
@@ -814,7 +893,8 @@ class Brain(app: Application) : AndroidViewModel(app) {
         val providers = config.optJSONObject("providers") ?: JSONObject().also { config.put("providers", it) }
         providers.put(CustomApi.ID, profile.config(providers.optJSONObject(CustomApi.ID)))
         saveConfig(config.toString(2))
-        check(models.any { it.provider == CustomApi.ID }) {
+        val loaded = models.filter { it.provider == CustomApi.ID }.map { it.id }.toSet()
+        check(loaded == profile.models.toSet()) {
             tr("Настройки сохранены. Перезапустите OpenCode, чтобы обновить список моделей.",
                 "Settings saved. Restart OpenCode to refresh the model list.")
         }

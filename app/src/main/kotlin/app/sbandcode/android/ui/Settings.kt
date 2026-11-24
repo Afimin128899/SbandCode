@@ -42,6 +42,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.sbandcode.android.BuildConfig
 import app.sbandcode.android.Brain
+import kotlinx.coroutines.CancellationException
 import app.sbandcode.android.tr
 
 @Composable
@@ -53,6 +54,37 @@ fun SettingsScreen(brain: Brain, back: () -> Unit) {
     val uri = LocalUriHandler.current
     val context = LocalContext.current
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    var transferring by remember { mutableStateOf(false) }
+    var transferMessage by remember { mutableStateOf<String?>(null) }
+    fun transfer(action: suspend () -> String) {
+        if (transferring) return
+        transferring = true
+        transferMessage = null
+        scope.launch {
+            try {
+                transferMessage = action()
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                transferMessage = e.message ?: tr("Операция не завершилась", "The operation did not complete")
+            } finally {
+                transferring = false
+            }
+        }
+    }
+    val backup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { file ->
+        if (file != null) transfer {
+            val count = brain.exportChatBackup(file)
+            tr("Чатов сохранено: $count", "Chats backed up: $count")
+        }
+    }
+    val restore = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { file ->
+        if (file != null) transfer {
+            val result = brain.importChatBackup(file)
+            tr("Восстановлено: ${result.added}. Уже были в приложении: ${result.skipped}.",
+                "Restored: ${result.added}. Already in the app: ${result.skipped}.")
+        }
+    }
     val openNotifications = {
         context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
             .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
@@ -106,6 +138,16 @@ fun SettingsScreen(brain: Brain, back: () -> Unit) {
             if (folders) FolderDialog(brain) { folders = false }
             Section(tr("Данные", "Data"))
             Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton({ backup.launch("SbandCode-chats.json") },
+                    enabled = brain.ready && !transferring && brain.sessions.isNotEmpty()) {
+                    Text(tr("Сохранить все чаты", "Back up all chats"))
+                }
+                OutlinedButton({ restore.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
+                    enabled = brain.ready && !transferring) {
+                    Text(tr("Восстановить чаты из копии", "Restore chats from backup"))
+                }
+                if (transferring) Text(tr("Обработка чатов…", "Processing chats…"))
+                transferMessage?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 OutlinedButton({ brain.screens.add("config") }) { Text(tr("Настройки opencode (opencode.json)", "opencode settings (opencode.json)")) }
                 OutlinedButton({ brain.restart() }) { Text(tr("Перезапустить opencode", "Restart opencode")) }
                 OutlinedButton({ wipe = true }, enabled = brain.sessions.isNotEmpty()) { Text(tr("Удалить все чаты", "Delete every chat")) }
