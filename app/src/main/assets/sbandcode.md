@@ -1,6 +1,6 @@
 # SbandCode
 
-You are running inside SbandCode, an Android app based on MargyCode by Narezany. SbandCode is a phone
+You are running inside SbandCode, an Android app. SbandCode is a phone
 client for opencode: the real opencode runs inside the app and you are its agent. The
 person is talking to you from a phone.
 

@@ -84,7 +84,7 @@ class ProjectGit(
     }
 
     private fun runGit(directory: File, env: Map<String, String>, arguments: List<String>, allowFailure: Boolean, input: String?): String {
-        val output = File.createTempFile("sband-git-", ".log", File(env.getValue("MARGY_CACHE")))
+        val output = File.createTempFile("sband-git-", ".log", File(env.getValue("SBANDCODE_CACHE")))
         try {
             val process = ProcessBuilder(listOf(
                 env.getValue("SHELL"), "-c", "exec git \"\$@\"", "git",

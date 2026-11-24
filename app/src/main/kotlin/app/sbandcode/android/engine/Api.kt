@@ -6,18 +6,19 @@ import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
-import java.net.URL
+import java.io.IOException
 import java.net.URLEncoder
+
+class LocalConnectionError(cause: IOException) : IOException(cause.message, cause)
 
 class ApiError(val code: Int, message: String) : Exception(message)
 
 /** opencode's HTTP API, as its own desktop app uses it. */
 class Api(private val engine: Engine) {
     private fun open(path: String): HttpURLConnection {
-        val c = URL("http://127.0.0.1:${engine.port}$path").openConnection() as HttpURLConnection
+        val c = engine.connection(path)
         c.connectTimeout = 5_000
         c.readTimeout = 120_000
-        c.setRequestProperty("Authorization", engine.auth())
         return c
     }
 
@@ -29,8 +30,13 @@ class Api(private val engine: Engine) {
             if (body != null) {
                 c.doOutput = true
                 c.setRequestProperty("Content-Type", "application/json")
-                c.outputStream.use { it.write(body.toString().toByteArray()) }
             }
+            try {
+                c.connect()
+            } catch (e: IOException) {
+                throw LocalConnectionError(e)
+            }
+            if (body != null) c.outputStream.use { it.write(body.toString().toByteArray()) }
             val code = c.responseCode
             val text = (if (code in 200..299) c.inputStream else c.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
             if (code !in 200..299) {

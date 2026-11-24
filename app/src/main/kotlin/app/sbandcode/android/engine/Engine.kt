@@ -6,8 +6,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.net.HttpURLConnection
+import java.net.InetAddress
+import java.net.Proxy
 import java.net.ServerSocket
 import java.net.URL
+import java.net.InetSocketAddress
 import java.security.SecureRandom
 import java.util.Base64
 
@@ -19,8 +22,8 @@ import java.util.Base64
  * the library folder is the one place Android lets an app execute files from.
  */
 class Engine(private val context: Context) {
-    private var process: Process? = null
-    var port = 0
+    @Volatile private var process: Process? = null
+    @Volatile var port = 0
         private set
     val password: String = ByteArray(24).also { SecureRandom().nextBytes(it) }
         .let { Base64.getUrlEncoder().withoutPadding().encodeToString(it) }
@@ -54,7 +57,10 @@ class Engine(private val context: Context) {
         if (running) return@withContext
         val bin = File(context.applicationInfo.nativeLibraryDir, "libopencode.so")
         if (!bin.exists()) error("opencode is missing from the app: $bin")
-        port = ServerSocket(0).use { it.localPort }
+        port = ServerSocket().use {
+            it.bind(InetSocketAddress(InetAddress.getByName("127.0.0.1"), 0))
+            it.localPort
+        }
         for (d in listOf(home, workspace, tmp, config)) d.mkdirs()
         beforeStart()
         val pb = ProcessBuilder(bin.absolutePath, "serve", "--hostname", "127.0.0.1", "--port", port.toString())
@@ -70,14 +76,22 @@ class Engine(private val context: Context) {
             if (ping()) return@withContext
             delay(250)
         }
+        stop()
         error("opencode didn't start in a minute: " + log.readText().takeLast(1500))
     }
 
+    fun connection(path: String): HttpURLConnection =
+        (URL("http://127.0.0.1:$port$path").openConnection(Proxy.NO_PROXY) as HttpURLConnection).apply {
+            instanceFollowRedirects = false
+            setRequestProperty("Authorization", auth())
+        }
+
+    suspend fun healthy(): Boolean = withContext(Dispatchers.IO) { running && ping() }
+
     private fun ping(): Boolean = runCatching {
-        val c = URL("http://127.0.0.1:$port/api/info").openConnection() as HttpURLConnection
+        val c = connection("/api/info")
         c.connectTimeout = 500
         c.readTimeout = 2000
-        c.setRequestProperty("Authorization", auth())
         try { c.responseCode == 200 } finally { c.disconnect() }
     }.getOrDefault(false)
 

@@ -50,19 +50,19 @@ import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.material.icons.outlined.FolderOpen
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Stop
 import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
-import androidx.compose.material3.CenterAlignedTopAppBar
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -72,7 +72,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -99,7 +98,6 @@ import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -155,34 +153,34 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
     }
 
     Column(Modifier.fillMaxSize()) {
-        CenterAlignedTopAppBar(
-            navigationIcon = { IconButton(openDrawer) { Icon(Icons.Outlined.Menu, tr("Меню", "Menu")) } },
+        TopAppBar(
+            navigationIcon = {
+                IconButton(openDrawer) { Icon(Icons.Outlined.FolderOpen, tr("Открыть папку чатов", "Open chat folder")) }
+            },
             title = {
-                Column(
-                    Modifier.clip(RoundedCornerShape(14.dp)).clickable(enabled = brain.ready) { picker = true }
-                        .padding(horizontal = 10.dp, vertical = 4.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Text(model?.name ?: if (brain.ready) tr("Выберите модель", "Pick a model") else "SbandCode",
-                            style = MaterialTheme.typography.titleMedium,
-                            maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.widthIn(max = 220.dp))
-                        if (brain.ready) Icon(Icons.Outlined.KeyboardArrowDown, null, Modifier.size(20.dp))
-                    }
-                    model?.let { m ->
-                        Text(brain.providerName(m.provider), style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
-                }
+                Text("SbandCode", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
             },
-            actions = {
-                if (id != null) IconButton({ brain.screens.add("changes") }) {
-                    Icon(Icons.Outlined.Build, tr("Правки агента", "Agent changes"))
-                }
-                IconButton({ brain.openSession(null) }, enabled = id != null) { Icon(Icons.Outlined.EditNote, tr("Новый чат", "New chat")) }
-            },
-            colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         )
+        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(brain.session()?.title?.takeIf { it.isNotBlank() } ?: tr("Новый чат", "New chat"),
+                Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = MaterialTheme.typography.titleSmall)
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.surfaceContainer,
+                modifier = Modifier.widthIn(max = 170.dp).clip(RoundedCornerShape(12.dp))
+                    .clickable(enabled = brain.ready) { picker = true },
+            ) {
+                Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(model?.name ?: tr("Модель", "Model"), Modifier.weight(1f, fill = false), maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
+                    Icon(Icons.Outlined.KeyboardArrowDown, null, Modifier.size(16.dp))
+                }
+            }
+        }
+        HorizontalDivider()
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             val shown = brain.shown()
@@ -385,18 +383,19 @@ private fun Starting(brain: Brain) {
 
 @Composable
 private fun Welcome(brain: Brain) {
-    Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center,
-        horizontalAlignment = Alignment.CenterHorizontally) {
-        Logo(72)
-        Spacer(Modifier.height(20.dp))
-        Text(tr("Чем помочь?", "How can I help?"), style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-        if (brain.integrations.none { it.connected }) {
-            Spacer(Modifier.height(8.dp))
-            Text(tr("Бесплатные модели opencode работают сразу. Для остальных подключите OpenCode Go, Zen или другого провайдера.",
-                "opencode's free models work right away. For the rest, connect OpenCode Go, Zen or another provider."),
-                textAlign = TextAlign.Center, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Spacer(Modifier.height(16.dp))
-            OutlinedButton({ brain.screens.add("providers") }) { Text(tr("Провайдеры", "Providers")) }
+    Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
+        Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(20.dp),
+            modifier = Modifier.widthIn(max = 440.dp).fillMaxWidth()) {
+            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Logo(56)
+                Text(tr("Начните разговор", "Start a conversation"), style = MaterialTheme.typography.headlineSmall,
+                    fontWeight = FontWeight.SemiBold)
+                Text(if (brain.currentModel() == null) tr(
+                    "Выберите модель или подключите провайдера в папке «Инструменты».",
+                    "Pick a model or connect a provider from the Tools folder.",
+                ) else tr("Напишите вопрос или опишите задачу для проекта.", "Ask a question or describe a project task."),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
         }
     }
 }
@@ -622,10 +621,11 @@ private fun Composer(
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(6)) { onPick(it) }
     val hasAttachments = editing?.files?.isNotEmpty() ?: pictures.isNotEmpty()
     val canSend = brain.ready && model != null && (text.isNotBlank() || hasAttachments)
+    var extras by remember { mutableStateOf(false) }
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shape = RoundedCornerShape(28.dp),
-        modifier = Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(start = 10.dp, end = 10.dp, bottom = 10.dp),
+        shape = RoundedCornerShape(18.dp),
+        modifier = Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
     ) {
         Column(Modifier.padding(6.dp)) {
             editing?.let {
@@ -657,26 +657,36 @@ private fun Composer(
                 ),
                 modifier = Modifier.fillMaxWidth(),
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                if (model?.images == true && editing == null) IconButton({
-                    pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                }) { Icon(Icons.Outlined.AddPhotoAlternate, tr("Картинка", "Picture")) }
-                if (model != null && model.variants.isNotEmpty()) ThinkingChip(brain, enabled = !running)
-                if (model != null && brain.isLocal(model)) {
-                    val tools = brain.prefs.localTools
-                    Surface(
-                        color = if (tools) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-                        shape = RoundedCornerShape(18.dp),
-                        modifier = Modifier.clip(RoundedCornerShape(18.dp)).clickable { brain.setLocalTools(!tools) },
-                    ) {
-                        Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Outlined.Build, null, Modifier.size(16.dp))
-                            Text(if (tools) tr("Агент", "Agent") else tr("Чат", "Chat"), style = MaterialTheme.typography.labelLarge,
-                                modifier = Modifier.padding(start = 6.dp))
+            AnimatedVisibility(extras) {
+                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    if (model?.images == true && editing == null) IconButton({
+                        pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    }) { Icon(Icons.Outlined.AddPhotoAlternate, tr("Картинка", "Picture")) }
+                    if (model != null && model.variants.isNotEmpty()) ThinkingChip(brain, enabled = !running)
+                    if (model != null && brain.isLocal(model)) {
+                        val tools = brain.prefs.localTools
+                        Surface(
+                            color = if (tools) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
+                            shape = RoundedCornerShape(18.dp),
+                            modifier = Modifier.clip(RoundedCornerShape(18.dp)).clickable { brain.setLocalTools(!tools) },
+                        ) {
+                            Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Icon(Icons.Outlined.Build, null, Modifier.size(16.dp))
+                                Text(if (tools) tr("Агент", "Agent") else tr("Чат", "Chat"), style = MaterialTheme.typography.labelLarge,
+                                    modifier = Modifier.padding(start = 6.dp))
+                            }
                         }
                     }
+                    if (editing == null) FolderChip(brain)
                 }
-                if (editing == null) Box(Modifier.weight(1f)) { FolderChip(brain) } else Spacer(Modifier.weight(1f))
+            }
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                IconButton({ extras = !extras }) {
+                    Icon(Icons.Outlined.FolderOpen, if (extras) tr("Скрыть параметры сообщения", "Hide message options")
+                        else tr("Открыть параметры сообщения", "Open message options"))
+                }
+                Spacer(Modifier.weight(1f))
                 if (running) IconButton(stop) { Icon(Icons.Outlined.Stop, tr("Остановить", "Stop")) }
                 FilledIconButton(send, enabled = canSend && (!running || editing == null)) {
                     Icon(

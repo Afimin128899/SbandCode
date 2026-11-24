@@ -12,16 +12,16 @@ The models, providers and agent of [opencode](https://opencode.ai), in an app ma
 ---
 
 SbandCode is maintained by [Afimin128899](https://github.com/Afimin128899).
-It is based on [MargyCode by Narezany](https://git.narez.xyz/narezany/MargyCode).
 It starts `opencode serve`
 on the phone and talks to it over its HTTP API, the same way opencode's desktop
 app does. So what works in opencode on a computer works here, and the screens
 are drawn for a thumb instead of a terminal.
 
-Android 9 and up, arm64 only. No root. Keys and chats stay on the phone, unless
-you turn on chat sync yourself.
+Android 9 and up, arm64 only. No root. Provider credentials and chat history are stored on the phone.
 
 ## What it does
+
+Open the folder in the chat header to find chats and expandable tool groups. The folder beside the composer holds attachments, model options, and the working directory.
 
 - Review the files changed in the latest agent turn, copy a patch, or reverse a Git patch when the edited file still matches.
 - Search chat titles and messages by project, fork a chat at a message, and share text or a file from Android to a new or current chat.
@@ -107,15 +107,10 @@ you sign in with an OpenCode account, not with a key alone.
 </details>
 
 <details>
-<summary><b>Chats: export, import and sync</b></summary>
+<summary><b>Chats: export and import</b></summary>
 
 Any chat can be saved to a file in opencode's own transfer format and loaded back.
 
-Sign in with your [Margy Store](https://margy.narez.xyz) account, through Telegram
-or Google, and you can turn on sync to get your chats on another phone. It is off
-by default. Other people can't see your synced chats, but they are stored on the
-Margy server without end-to-end encryption, so don't turn it on for anything you
-wouldn't keep on someone else's server.
 </details>
 
 ## How it is built
@@ -149,8 +144,7 @@ For a signed release, use your own keystore at `keys/sbandcode.jks` with the
 `sbandcode` alias. Put its password in `keys/sbandcode.pass`.
 For a debug build after building the engine, run `gradle :app:assembleDebug`.
 
-SbandCode uses its own Android application ID (`app.sbandcode.android`)
-and can be installed alongside MargyCode.
+SbandCode uses the Android application ID `app.sbandcode.android`.
 
 ## Licence
 

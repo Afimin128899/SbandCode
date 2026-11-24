@@ -15,8 +15,6 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.sbandcode.android.data.Ask
 import app.sbandcode.android.data.Integration
-import app.sbandcode.android.data.Margy
-import app.sbandcode.android.data.MargyMe
 import app.sbandcode.android.data.Message
 import app.sbandcode.android.data.Model
 import app.sbandcode.android.data.Part
@@ -30,6 +28,7 @@ import app.sbandcode.android.data.ProjectProfile
 import app.sbandcode.android.engine.ChatNotifications
 import app.sbandcode.android.engine.Api
 import app.sbandcode.android.engine.ApiError
+import app.sbandcode.android.engine.LocalConnectionError
 import app.sbandcode.android.engine.ClaudeCode
 import app.sbandcode.android.engine.Engine
 import app.sbandcode.android.engine.Linux
@@ -53,9 +52,6 @@ class Brain(app: Application) : AndroidViewModel(app) {
     val engine = Engine(app)
     val api = Api(engine)
     val claude = ClaudeCode(app, engine)
-    val margy = Margy(app)
-    /** The Margy Store profile, when signed in. */
-    var margyMe by mutableStateOf<MargyMe?>(null)
     val linux = Linux(app, engine)
     val local = Local(app)
     /** What went wrong starting the models on the phone, if anything. */
@@ -204,120 +200,10 @@ class Brain(app: Application) : AndroidViewModel(app) {
     private var refetchMessages: Job? = null
     private var refetchSessions: Job? = null
 
+    private var bootJob: Job? = null
+
     init {
-        viewModelScope.launch { boot() }
-        viewModelScope.launch { runCatching { margyMe = margy.me() }; syncSoon(1500) }
-    }
-
-    suspend fun margySignIn(google: Boolean, open: (String) -> Unit) {
-        margyMe = if (google) margy.google(open) else margy.telegram(open)
-        syncSoon(500)
-    }
-
-    suspend fun margyEdit(display: String? = null, nick: String? = null, bio: String? = null, dmOpen: Boolean? = null) {
-        margyMe = margy.edit(display, nick, bio, dmOpen)
-    }
-
-    suspend fun margyAvatar(uri: Uri) {
-        val bytes = withContext(Dispatchers.IO) { File(importPicture(uri) ?: error("?")).readBytes() }
-        margy.setAvatar(bytes, "image/jpeg")
-        margyMe = margy.me()
-    }
-
-    suspend fun margyUnlink(what: String) {
-        margy.unlink(what)
-        margyMe = margy.me()
-    }
-
-    // ---- chats on the Margy server ----
-
-    var syncing by mutableStateOf(false)
-        private set
-    var syncError by mutableStateOf<String?>(null)
-        private set
-    private var syncJob: Job? = null
-    private val syncFile get() = File(ctx.filesDir, "sync.json")
-
-    /** What each chat looked like at the last sync, here and on the server: chat id to (local, remote) update times. */
-    private fun syncState(): MutableMap<String, Pair<Long, Long>> = runCatching {
-        val o = JSONObject(syncFile.readText())
-        o.keys().asSequence().associateWith { k -> o.getJSONArray(k).let { it.getLong(0) to it.getLong(1) } }.toMutableMap()
-    }.getOrDefault(mutableMapOf())
-
-    private fun saveSync(state: Map<String, Pair<Long, Long>>) {
-        val o = JSONObject()
-        for ((k, v) in state) o.put(k, JSONArray().put(v.first).put(v.second))
-        syncFile.writeText(o.toString())
-    }
-
-    fun syncSoon(delayMs: Long = 4000) {
-        if (!prefs.sync || margyMe == null) return
-        syncJob?.cancel()
-        syncJob = viewModelScope.launch { delay(delayMs); syncNow() }
-    }
-
-    /**
-     * Two-way, by update times: what changed here goes up, what changed elsewhere comes down
-     * (opencode's own export and import), and a chat deleted on one side goes on the other.
-     */
-    suspend fun syncNow() {
-        if (!prefs.sync || margyMe == null || !ready || syncing) return
-        syncing = true
-        syncError = null
-        try {
-            loadSessions()
-            val state = syncState()
-            val remote = margy.chats().associateBy { it.id }
-            val local = sessions.toList().associateBy { it.id }
-            for ((id, s) in local) {
-                if (busy[id] == true) continue
-                val was = state[id]
-                val r = remote[id]
-                val changedHere = was == null || s.updated > was.first
-                val changedThere = r != null && (was == null || r.updated > was.second)
-                when {
-                    r == null && was != null -> { api.delete("/api/session/$id"); state.remove(id) }
-                    changedThere && (!changedHere || r!!.updated > s.updated) -> {
-                        val got = pull(id)
-                        if (got != null) state[id] = got to r!!.updated
-                    }
-                    changedHere -> {
-                        val data = api.get("/api/experimental/session/$id/export").getJSONObject("data")
-                        margy.putChat(id, s.title, s.updated, data.toString().toByteArray())
-                        state[id] = s.updated to s.updated
-                    }
-                }
-            }
-            for ((id, r) in remote) {
-                if (id in local) continue
-                if (id in state) { margy.deleteChat(id); state.remove(id); continue }
-                val got = pull(id)
-                if (got != null) state[id] = got to r.updated
-            }
-            saveSync(state)
-            loadSessions()
-            open?.let { loadMessages(it) }
-        } catch (e: CancellationException) {
-            throw e
-        } catch (e: Exception) {
-            syncError = e.message ?: e.toString()
-        } finally {
-            syncing = false
-        }
-    }
-
-    /** Brings one chat down from the server in place of the local one; returns its new local update time. */
-    private suspend fun pull(id: String): Long? {
-        val o = JSONObject(margy.getChat(id).toString(Charsets.UTF_8)).let { it.optJSONObject("data") ?: it }
-        runCatching { api.delete("/api/session/$id") }
-        val made = api.post("/api/experimental/session/import", jsonOf("info" to o.getJSONObject("info"),
-            "messages" to o.getJSONArray("messages"), "location" to jsonOf("directory" to folder().absolutePath)))
-        return made.optJSONObject("data")?.optJSONObject("time")?.optLong("updated")
-    }
-
-    fun margySignOut() = viewModelScope.launch {
-        margy.signOut()
-        margyMe = null
+        startEngine()
     }
 
     private suspend fun boot() {
@@ -326,6 +212,8 @@ class Brain(app: Application) : AndroidViewModel(app) {
         localError = runCatching { local.start(prefs.localContext, 0) }.exceptionOrNull()?.message
         try {
             engine.start()
+        } catch (e: CancellationException) {
+            throw e
         } catch (e: Exception) {
             engineError = e.message ?: e.toString()
             return
@@ -334,15 +222,22 @@ class Brain(app: Application) : AndroidViewModel(app) {
         eventJob?.cancel()
         eventJob = viewModelScope.launch { listen() }
         refreshAll()
-        syncSoon(1000)
     }
 
-    fun restart() {
+    private fun startEngine(reset: Boolean = false) {
+        if (bootJob?.isActive == true) return
         eventJob?.cancel()
-        engine.stop()
-        local.stop()
-        viewModelScope.launch { boot() }
+        engineError = null
+        bootJob = viewModelScope.launch {
+            if (reset) {
+                engine.stop()
+                local.stop()
+            }
+            boot()
+        }
     }
+
+    fun restart() = startEngine(reset = true)
 
     override fun onCleared() {
         engine.stop()
@@ -355,6 +250,10 @@ class Brain(app: Application) : AndroidViewModel(app) {
             block()
         } catch (e: CancellationException) {
             throw e
+        } catch (e: LocalConnectionError) {
+            if (ready && !engine.healthy() && ready) restart()
+            notice = tr("Нет соединения с локальным OpenCode. Попробуйте ещё раз после подключения.",
+                "The local OpenCode connection is unavailable. Try again after it reconnects.")
         } catch (e: Exception) {
             notice = e.message ?: e.toString()
         }
@@ -479,8 +378,8 @@ class Brain(app: Application) : AndroidViewModel(app) {
             } catch (_: Exception) {
             }
             delay(1000)
-            if (!engine.running) {
-                engineError = tr("opencode остановился", "opencode stopped") + "\n" + engine.log.readText().takeLast(1200)
+            if (!engine.healthy() && bootJob?.isActive != true) {
+                restart()
                 return
             }
             guard { loadSessions(); followUps.keys.toList().forEach(::sendNextFollowUp) }
@@ -508,7 +407,6 @@ class Brain(app: Application) : AndroidViewModel(app) {
             type == "session.execution.started" && sid != null -> { busy[sid] = true; updateService() }
             type.startsWith("session.execution.") && sid != null -> {
                 busy[sid] = false
-                syncSoon()
                 updateService()
                 soonSessions()
                 if (!foreground && type in setOf("session.execution.succeeded", "session.execution.failed")) {
@@ -644,10 +542,6 @@ class Brain(app: Application) : AndroidViewModel(app) {
         guard {
             api.delete("/api/session/${s.id}")
             clearFollowUps(s.id)
-            if (prefs.sync && margyMe != null) runCatching {
-                margy.deleteChat(s.id)
-                saveSync(syncState().also { it.remove(s.id) })
-            }
             if (open == s.id) openSession(null)
             loadSessions()
         }
@@ -665,22 +559,27 @@ class Brain(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             guard {
                 var id = destination
-                if (id == null) {
-                    val dir = folder()
-                    val profile = prefs.profiles.firstOrNull { it.directory == dir.absolutePath }
-                    val selected = model(profile?.model) ?: m
-                    id = api.post("/api/session", jsonOf(
-                        "model" to ref(selected), "agent" to (profile?.agent ?: agentFor(selected)),
-                        "permissions" to profile?.permissions(),
-                        "location" to jsonOf("directory" to dir.absolutePath),
-                    )).getJSONObject("data").getString("id")
-                    open = id
-                    messages = emptyList()
-                    live.clear()
-                } else if (session(id)?.model != m.ref || session(id)?.variant.orEmpty() != variantOf(m)) {
-                    api.post("/api/session/$id/model", jsonOf("model" to ref(m)))
+                try {
+                    if (id == null) {
+                        val dir = folder()
+                        val profile = prefs.profiles.firstOrNull { it.directory == dir.absolutePath }
+                        val selected = model(profile?.model) ?: m
+                        id = api.post("/api/session", jsonOf(
+                            "model" to ref(selected), "agent" to (profile?.agent ?: agentFor(selected)),
+                            "permissions" to profile?.permissions(),
+                            "location" to jsonOf("directory" to dir.absolutePath),
+                        )).getJSONObject("data").getString("id")
+                        open = id
+                        messages = emptyList()
+                        live.clear()
+                    } else if (session(id)?.model != m.ref || session(id)?.variant.orEmpty() != variantOf(m)) {
+                        api.post("/api/session/$id/model", jsonOf("model" to ref(m)))
+                    }
+                    prompt(id, text, pictures)
+                } catch (e: LocalConnectionError) {
+                    if (open == id) shared = text to pictures
+                    throw e
                 }
-                prompt(id, text, pictures)
                 loadSessions()
                 loadMessages(id)
             }

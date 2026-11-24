@@ -1,9 +1,12 @@
 package app.sbandcode.android.ui
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
 
 private val Graphite = darkColorScheme(
     primary = Color(0xFFE7E7E7), onPrimary = Color(0xFF191919),
@@ -25,7 +28,15 @@ private val Graphite = darkColorScheme(
     errorContainer = Color(0xFF424242), onErrorContainer = Color(0xFFFAFAFA),
 )
 
+private val SbandTypography = Typography().let {
+    it.copy(
+        headlineSmall = it.headlineSmall.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.35).sp),
+        titleLarge = it.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+        labelLarge = it.labelLarge.copy(fontWeight = FontWeight.Medium, letterSpacing = 0.1.sp),
+    )
+}
+
 @Composable
 fun SbandTheme(content: @Composable () -> Unit) {
-    MaterialTheme(colorScheme = Graphite, content = content)
+    MaterialTheme(colorScheme = Graphite, typography = SbandTypography, content = content)
 }
