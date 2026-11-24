@@ -79,7 +79,7 @@ import org.json.JSONObject
 fun Page(title: String, back: () -> Unit, actions: @Composable () -> Unit = {}, content: @Composable (Modifier) -> Unit) {
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
-            title = { Text(title) },
+            title = { Text(title, style = MaterialTheme.typography.titleLarge) },
             navigationIcon = { IconButton(back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, tr("Назад", "Back")) } },
             actions = { actions() },
         )

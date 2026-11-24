@@ -14,7 +14,25 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.runtime.getValue
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.consumeWindowInsets
@@ -26,8 +44,6 @@ import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
-import androidx.compose.material3.NavigationBar
-import androidx.compose.material3.NavigationBarItem
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.fillMaxSize
@@ -150,23 +166,10 @@ private fun Root(brain: Brain) {
             }
         }
         if (showTabs) {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-                for ((route, label, icon) in listOf(
-                    Triple(null, tr("Чат", "Chat"), Icons.Outlined.ChatBubbleOutline),
-                    Triple("workspace", tr("Инструменты", "Tools"), Icons.Outlined.Build),
-                    Triple("settings", tr("Настройки", "Settings"), Icons.Outlined.Settings),
-                )) {
-                    NavigationBarItem(
-                        selected = top == route,
-                        onClick = {
-                            if (top != route) {
-                                brain.screens.clear()
-                                if (route != null) brain.screens.add(route)
-                            }
-                        },
-                        icon = { Icon(icon, null) },
-                        label = { Text(label) },
-                    )
+            MainDock(top) { route ->
+                if (top != route) {
+                    brain.screens.clear()
+                    if (route != null) brain.screens.add(route)
                 }
             }
         }
@@ -181,4 +184,45 @@ private fun Root(brain: Brain) {
             else TextButton({ brain.incomingShare = null }) { Text(tr("Отмена", "Cancel")) }
         },
     )
+}
+
+
+@Composable
+private fun MainDock(selected: String?, onSelect: (String?) -> Unit) {
+    val scheme = MaterialTheme.colorScheme
+    Box(
+        Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 14.dp, end = 14.dp, top = 3.dp, bottom = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Surface(
+            modifier = Modifier.widthIn(max = 510.dp).fillMaxWidth(),
+            shape = RoundedCornerShape(24.dp),
+            color = scheme.surfaceContainerLow,
+            border = BorderStroke(1.dp, scheme.outlineVariant),
+        ) {
+            Row(Modifier.selectableGroup().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                for ((route, label, icon) in listOf(
+                    Triple(null, tr("Чат", "Chat"), Icons.Outlined.ChatBubbleOutline),
+                    Triple("workspace", tr("Инструменты", "Tools"), Icons.Outlined.Build),
+                    Triple("settings", tr("Настройки", "Settings"), Icons.Outlined.Settings),
+                )) {
+                    val active = route == selected
+                    val color by animateColorAsState(
+                        if (active) scheme.surfaceContainerHighest else scheme.surfaceContainerLow, label = "tab",
+                    )
+                    val ink = if (active) scheme.onSurface else scheme.onSurfaceVariant
+                    val shape = RoundedCornerShape(19.dp)
+                    Surface(color = color, shape = shape,
+                        modifier = Modifier.weight(1f).clip(shape).selectable(active, role = Role.Tab) { onSelect(route) }) {
+                        Column(Modifier.heightIn(min = 52.dp).padding(horizontal = 3.dp, vertical = 5.dp),
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)) {
+                            Icon(icon, null, Modifier.size(18.dp), tint = ink)
+                            Text(label, style = MaterialTheme.typography.labelMedium, color = ink)
+                        }
+                    }
+                }
+            }
+        }
+    }
 }

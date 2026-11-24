@@ -2,6 +2,9 @@ package app.sbandcode.android.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material.icons.outlined.Search
+import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
@@ -56,7 +59,9 @@ import java.util.Calendar
 
 @Composable
 fun Logo(size: Int) {
-    Surface(color = androidx.compose.ui.graphics.Color(0xFF1B1B1B), shape = RoundedCornerShape((size * 0.24f).dp),
+    Surface(color = MaterialTheme.colorScheme.surfaceContainerHighest,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        shape = RoundedCornerShape((size * 0.24f).dp),
         modifier = Modifier.size(size.dp)) {
         // the drawable is the adaptive icon's 108 dp with the visible 72 in the middle
         Icon(painterResource(R.drawable.ic_launcher_foreground), null, tint = androidx.compose.ui.graphics.Color.Unspecified,
@@ -113,11 +118,13 @@ fun Drawer(brain: Brain, close: () -> Unit) {
                 )
                 NavigationDrawerItem(
                     label = { Text(tr("Поиск по чатам", "Search chats")) },
+                    icon = { Icon(Icons.Outlined.Search, null) },
                     selected = false,
                     onClick = { brain.screens.add("search"); close() },
                 )
                 NavigationDrawerItem(
                     label = { Text(tr("Импорт чата", "Import chat")) },
+                    icon = { Icon(Icons.Outlined.FileUpload, null) },
                     selected = false,
                     onClick = { load.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
                 )

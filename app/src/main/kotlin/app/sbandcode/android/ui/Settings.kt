@@ -7,7 +7,31 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.outlined.KeyboardArrowRight
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.FileUpload
+import androidx.compose.material.icons.outlined.FileDownload
+import androidx.compose.material.icons.outlined.Delete
+import androidx.compose.material.icons.outlined.EditNote
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.Hub
+import androidx.compose.material.icons.outlined.Key
+import androidx.compose.material.icons.outlined.Notifications
+import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material.icons.outlined.Speed
+import androidx.compose.material.icons.outlined.Storage
+import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
+import androidx.compose.material3.Surface
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -21,7 +45,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -91,66 +114,71 @@ fun SettingsScreen(brain: Brain, back: () -> Unit) {
     }
     Page(tr("Настройки", "Settings"), back) { mod ->
         Column(mod.verticalScroll(rememberScrollState()).navigationBarsPadding().imePadding()) {
-            Section(tr("Модели и подключение", "Models and connections"))
-            for ((destination, label) in listOf(
-                "custom-api" to tr("Свой API и модели", "Custom API and models"),
-                "providers" to tr("Провайдеры и ключи API", "Providers and API keys"),
-                "local" to tr("Локальные модели", "Local models"),
-                "limits" to tr("Лимиты и использование", "Limits and usage"),
-            )) {
-                TextButton({ brain.screens.add(destination) }, Modifier.padding(start = 12.dp)) { Text(label) }
+            SettingsGroup(tr("Модели и подключение", "Models and connections")) {
+                SettingsLink(Icons.Outlined.Key, tr("Свой API и модели", "Custom API and models"),
+                    tr("URL, ключ и список моделей", "URL, key and model list")) { brain.screens.add("custom-api") }
+                SettingsLink(Icons.Outlined.Hub, tr("Провайдеры и ключи API", "Providers and API keys"),
+                    divider = true) { brain.screens.add("providers") }
+                SettingsLink(Icons.Outlined.Storage, tr("Локальные модели", "Local models"),
+                    divider = true) { brain.screens.add("local") }
+                SettingsLink(Icons.Outlined.Speed, tr("Лимиты и использование", "Limits and usage"),
+                    divider = true) { brain.screens.add("limits") }
             }
 
-            Section(tr("Уведомления", "Notifications"))
-            TextButton({
-                if (Build.VERSION.SDK_INT >= 33 &&
-                    context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
-                    notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
-                } else openNotifications()
-            }, Modifier.padding(start = 12.dp)) {
-                Text(tr("Уведомления о завершении и разрешениях", "Completion and permission notifications"))
-            }
-
-            Section(tr("Правила для модели", "Rules for the model"))
-            Text(tr("Общий AGENTS.md opencode: что модель должна помнить в каждом чате.",
-                "opencode's global AGENTS.md: what the model keeps in mind in every chat."),
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
-            rules?.let { r ->
-                OutlinedTextField(r, { rules = it }, minLines = 3, maxLines = 12,
-                    placeholder = { Text(tr("Например: отвечай кратко и по-русски", "For example: answer briefly")) },
-                    modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp))
-                TextButton({ scope.launch { runCatching { brain.saveRules(r) } } }, Modifier.padding(start = 12.dp)) {
-                    Text(tr("Сохранить правила", "Save the rules"))
-                }
-            }
-
-            Section(tr("Файлы", "Files"))
             var folders by remember { mutableStateOf(false) }
-            Row(Modifier.fillMaxWidth().clickable { folders = true }.padding(horizontal = 24.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(tr("Папка для новых чатов", "Folder for new chats"))
-                    Text(brain.folderLabel(brain.folder().absolutePath), style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+            var showRules by remember { mutableStateOf(false) }
+            SettingsGroup(tr("Чат", "Chat")) {
+                SettingsLink(Icons.Outlined.Notifications, tr("Уведомления", "Notifications"),
+                    tr("Завершение ответа и запросы разрешений", "Completed replies and permission requests")) {
+                    if (Build.VERSION.SDK_INT >= 33 &&
+                        context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                        notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    } else openNotifications()
+                }
+                SettingsLink(Icons.Outlined.Folder, tr("Папка для новых чатов", "Folder for new chats"),
+                    brain.folderLabel(brain.folder().absolutePath), divider = true) { folders = true }
+                SettingsLink(Icons.Outlined.EditNote, tr("Правила для модели", "Model instructions"),
+                    "AGENTS.md", divider = true) { showRules = !showRules }
+                AnimatedVisibility(showRules) {
+                    rules?.let { r ->
+                        Column(Modifier.padding(horizontal = 14.dp)) {
+                            OutlinedTextField(r, { rules = it }, minLines = 3, maxLines = 10,
+                                placeholder = { Text(tr("Например: отвечай кратко и по-русски", "For example: answer briefly")) },
+                                modifier = Modifier.fillMaxWidth())
+                            TextButton({
+                                transfer {
+                                    brain.saveRules(r)
+                                    tr("Правила сохранены", "Instructions saved")
+                                }
+                            }, enabled = brain.ready && !transferring) { Text(tr("Сохранить правила", "Save instructions")) }
+                        }
+                    }
                 }
             }
             if (folders) FolderDialog(brain) { folders = false }
-            Section(tr("Данные", "Data"))
-            Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedButton({ backup.launch("SbandCode-chats.json") },
-                    enabled = brain.ready && !transferring && brain.sessions.isNotEmpty()) {
-                    Text(tr("Сохранить все чаты", "Back up all chats"))
+
+            SettingsGroup(tr("Данные", "Data")) {
+                SettingsLink(Icons.Outlined.FileDownload, tr("Сохранить все чаты", "Back up all chats"),
+                    tr("Экспорт в JSON", "Export as JSON"), enabled = brain.ready && !transferring && brain.sessions.isNotEmpty()) {
+                    backup.launch("SbandCode-chats.json")
                 }
-                OutlinedButton({ restore.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
-                    enabled = brain.ready && !transferring) {
-                    Text(tr("Восстановить чаты из копии", "Restore chats from backup"))
+                SettingsLink(Icons.Outlined.FileUpload, tr("Восстановить из копии", "Restore from backup"),
+                    divider = true, enabled = brain.ready && !transferring) {
+                    restore.launch(arrayOf("application/json", "text/plain", "application/octet-stream"))
                 }
-                if (transferring) Text(tr("Обработка чатов…", "Processing chats…"))
-                transferMessage?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
-                OutlinedButton({ brain.screens.add("config") }) { Text(tr("Настройки opencode (opencode.json)", "opencode settings (opencode.json)")) }
-                OutlinedButton({ brain.restart() }) { Text(tr("Перезапустить opencode", "Restart opencode")) }
-                OutlinedButton({ wipe = true }, enabled = brain.sessions.isNotEmpty()) { Text(tr("Удалить все чаты", "Delete every chat")) }
+            }
+
+            SettingsGroup("OpenCode") {
+                SettingsLink(Icons.Outlined.Code, "opencode.json") { brain.screens.add("config") }
+                SettingsLink(Icons.Outlined.Refresh, tr("Перезапустить OpenCode", "Restart OpenCode"), divider = true) {
+                    brain.restart()
+                }
+                SettingsLink(Icons.Outlined.Delete, tr("Удалить все чаты", "Delete all chats"),
+                    divider = true, enabled = brain.sessions.isNotEmpty() && !transferring) { wipe = true }
+            }
+            if (transferring || transferMessage != null) {
+                Text(if (transferring) tr("Выполняется…", "Working…") else transferMessage.orEmpty(),
+                    Modifier.padding(horizontal = 24.dp, vertical = 12.dp), color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
 
             Section(tr("О приложении", "About"))
@@ -183,5 +211,44 @@ fun SettingsScreen(brain: Brain, back: () -> Unit) {
         text = { Text(tr("Вернуть их будет нельзя.", "They can't be brought back.")) },
         confirmButton = { TextButton({ brain.sessions.toList().forEach { brain.delete(it) }; wipe = false }) { Text(tr("Удалить", "Delete")) } },
         dismissButton = { TextButton({ wipe = false }) { Text(tr("Отмена", "Cancel")) } },
+    )
+}
+
+
+@Composable
+private fun SettingsGroup(title: String, content: @Composable () -> Unit) {
+    Section(title)
+    val scheme = MaterialTheme.colorScheme
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+        shape = RoundedCornerShape(21.dp),
+        color = scheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, scheme.outlineVariant),
+    ) {
+        Column { content() }
+    }
+}
+
+@Composable
+private fun SettingsLink(
+    icon: ImageVector,
+    title: String,
+    detail: String? = null,
+    divider: Boolean = false,
+    enabled: Boolean = true,
+    action: () -> Unit,
+) {
+    val scheme = MaterialTheme.colorScheme
+    val ink = if (enabled) scheme.onSurface else scheme.onSurface.copy(alpha = 0.38f)
+    if (divider) HorizontalDivider(Modifier.padding(start = 53.dp))
+    ListItem(
+        headlineContent = { Text(title, color = ink, style = MaterialTheme.typography.titleSmall) },
+        supportingContent = detail?.let { { Text(it, color = if (enabled) scheme.onSurfaceVariant else ink) } },
+        leadingContent = { Icon(icon, null, Modifier.size(21.dp), tint = ink) },
+        trailingContent = {
+            Icon(Icons.AutoMirrored.Outlined.KeyboardArrowRight, null, Modifier.size(19.dp), tint = if (enabled) scheme.onSurfaceVariant else ink)
+        },
+        colors = ListItemDefaults.colors(containerColor = scheme.surfaceContainerLow),
+        modifier = Modifier.clickable(enabled = enabled, onClick = action),
     )
 }

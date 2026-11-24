@@ -7,13 +7,23 @@ import subprocess
 HERE = pathlib.Path(__file__).parent
 
 SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="900" height="260" viewBox="0 0 900 260">
-  <rect width="900" height="260" fill="#131313"/>
-  <rect x="65" y="32" width="185" height="185" rx="58" fill="none" stroke="#444444" stroke-width="2"/>
-  <g transform="translate(157.5 124.5) scale(2.25) translate(-54 -54)">
-    <path d="M37,32 H71 Q77,32 77,38 V70 Q77,76 71,76 H37 Q31,76 31,70 V38 Q31,32 37,32 Z" fill="none" stroke="#fff" stroke-width="3.5"/><path d="M38,43 L49,54 L38,65 M55,65 L70,65" fill="none" stroke="#fff" stroke-width="4.5" stroke-linecap="round" stroke-linejoin="round"/>
+  <defs>
+    <linearGradient id="fade">
+      <stop stop-color="#0d0d0d"/>
+      <stop offset="1" stop-color="#262626"/>
+    </linearGradient>
+    <pattern id="grid" width="28" height="28" patternUnits="userSpaceOnUse">
+      <path d="M28 0H0V28" fill="none" stroke="#373737" stroke-width="1"/>
+    </pattern>
+  </defs>
+  <rect width="900" height="260" fill="url(#fade)"/>
+  <rect x="616" width="284" height="260" fill="url(#grid)" opacity=".6"/>
+  <rect x="58" y="53" width="154" height="154" rx="34" fill="#191919" stroke="#494949" stroke-width="2"/>
+  <g transform="translate(135 130) scale(2.05) translate(-54 -54)">
+    <path d="M68 31 H45 L32 44 V58 H58 V61 L52 67 H32 V77 H56 L68 65 V48 H43 V47 L49 41 H68 Z M71 67 H80 V77 H71 Z" fill="#f2f2f2"/>
   </g>
-  <text x="285" y="148" font-family="Noto Sans" font-weight="700" font-size="82" fill="#F4F4F4">SbandCode</text>
-  <text x="288" y="198" font-family="Noto Sans" font-size="30" fill="#BBBBBB">opencode on your phone</text>
+  <text x="253" y="145" font-family="Noto Sans" font-weight="700" font-size="73" fill="#F4F4F4">SbandCode</text>
+  <text x="257" y="185" font-family="Noto Sans" font-size="24" fill="#B9B9B9">OpenCode for Android</text>
 </svg>"""
 
 
