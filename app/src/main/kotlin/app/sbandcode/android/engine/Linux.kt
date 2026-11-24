@@ -28,12 +28,12 @@ class Linux(private val context: Context, private val engine: Engine) {
         return mapOf(
             "SHELL" to "$libs/liblinux.so",
             "PATH" to "${gitBin().absolutePath}:${engine.baseEnv().getValue("PATH")}",
-            "MARGY_PROOT" to "$libs/libproot.so",
-            "MARGY_PROOT_LOADER" to "$libs/libprootloader.so",
-            "MARGY_PROOT_TMP" to tmp.absolutePath,
-            "MARGY_ROOTFS" to rootfs.absolutePath,
-            "MARGY_FILES" to context.filesDir.absolutePath,
-            "MARGY_CACHE" to context.cacheDir.absolutePath,
+            "SBANDCODE_PROOT" to "$libs/libproot.so",
+            "SBANDCODE_PROOT_LOADER" to "$libs/libprootloader.so",
+            "SBANDCODE_PROOT_TMP" to tmp.absolutePath,
+            "SBANDCODE_ROOTFS" to rootfs.absolutePath,
+            "SBANDCODE_FILES" to context.filesDir.absolutePath,
+            "SBANDCODE_CACHE" to context.cacheDir.absolutePath,
         )
     }
 

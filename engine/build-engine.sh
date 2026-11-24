@@ -27,7 +27,7 @@ if [ ! -d opencode ]; then
     (cd opencode/packages/cli && bun install --os="*" --cpu="*" --libc="*" @opentui/core@$(bun -e 'console.log(require("./package.json").dependencies["@opentui/core"])') @opencode/pty@$(bun -e 'console.log(require("./package.json").dependencies["@opencode/pty"])'))
 fi
 cd opencode/packages/cli
-MARGY_BUN_EXECUTABLE="$here/bun-android/bun-linux-aarch64-android/bun" OPENCODE_TARGET=linux-arm64 \
+SBANDCODE_BUN_EXECUTABLE="$here/bun-android/bun-linux-aarch64-android/bun" OPENCODE_TARGET=linux-arm64 \
     OPENCODE_CHANNEL=latest OPENCODE_VERSION="${OPENCODE_TAG#v}" \
     bun run script/build.ts --skip-install --skip-web-ui --outdir="$here/out"
 mkdir -p "$here/../app/src/main/jniLibs/arm64-v8a"

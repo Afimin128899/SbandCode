@@ -2,10 +2,13 @@ package app.sbandcode.android.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.outlined.KeyboardArrowDown
+import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,14 +25,9 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
-import androidx.compose.material.icons.outlined.Extension
 import androidx.compose.material.icons.outlined.FileDownload
-import androidx.compose.material.icons.outlined.FileUpload
-import androidx.compose.material.icons.outlined.DataUsage
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.Hub
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -104,45 +102,58 @@ fun Drawer(brain: Brain, close: () -> Unit) {
         if (uri != null) { brain.importSession(uri); close() }
     }
     ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.width(310.dp)) {
-        // The Margy account on top when signed in, else the app's name with a way in.
-        Row(Modifier.fillMaxWidth().clickable { brain.screens.add("account"); close() }
-            .padding(start = 20.dp, top = 18.dp, bottom = 10.dp, end = 12.dp), verticalAlignment = Alignment.CenterVertically) {
-            val me = brain.margyMe
-            if (me != null) {
-                Avatar(brain, me, 38)
-                Column(Modifier.padding(start = 12.dp)) {
-                    Text(me.display, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Text("SbandCode", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            } else {
-                Logo(34)
-                Column(Modifier.padding(start = 12.dp)) {
-                    Text("SbandCode", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-                    Text(tr("Войти в аккаунт Margy", "Sign in to Margy"), style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.primary)
-                }
-            }
+        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Logo(42)
+            Text("SbandCode", Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold)
         }
-        NavigationDrawerItem(
-            label = { Text(tr("Новый чат", "New chat")) },
-            icon = { Icon(Icons.Outlined.Add, null) },
-            selected = false,
-            onClick = { brain.openSession(null); close() },
-            modifier = Modifier.padding(horizontal = 12.dp),
-        )
+        var expanded by rememberSaveable { mutableStateOf(false) }
         LazyColumn(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-            item(key = "project-tools") {
-                for ((destination, label) in listOf(
-                    "search" to tr("Поиск по чатам", "Search chats"),
-                    "profiles" to tr("Профили проектов", "Project profiles"),
-                    "git" to "Git",
-                    "preview" to tr("Веб-предпросмотр", "Web preview"),
-                )) {
-                    NavigationDrawerItem(
-                        label = { Text(label) }, selected = false,
-                        onClick = { brain.screens.add(destination); close() },
-                    )
+            item(key = "workspace-folder") {
+                Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(18.dp)) {
+                    Column(Modifier.fillMaxWidth().padding(4.dp)) {
+                        NavigationDrawerItem(
+                            label = { Text(tr("Инструменты", "Tools")) },
+                            icon = { Icon(Icons.Outlined.Folder, null) },
+                            badge = { Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, null) },
+                            selected = expanded,
+                            onClick = { expanded = !expanded },
+                        )
+                        AnimatedVisibility(expanded) {
+                            Column {
+                                NavigationDrawerItem(
+                                    label = { Text(tr("Новый чат", "New chat")) },
+                                    icon = { Icon(Icons.Outlined.Add, null) },
+                                    selected = false,
+                                    onClick = { brain.openSession(null); close() },
+                                )
+                                for ((destination, label) in listOf(
+                                    "search" to tr("Поиск по чатам", "Search chats"),
+                                    "changes" to tr("Правки агента", "Agent changes"),
+                                    "profiles" to tr("Профили проектов", "Project profiles"),
+                                    "git" to "Git",
+                                    "preview" to tr("Веб-предпросмотр", "Web preview"),
+                                    "providers" to tr("Провайдеры и модели", "Providers and models"),
+                                    "local" to tr("Локальные модели", "Local models"),
+                                    "limits" to tr("Лимиты", "Limits"),
+                                    "tools" to tr("Скиллы и MCP", "Skills and MCP"),
+                                    "settings" to tr("Настройки", "Settings"),
+                                )) {
+                                    if (destination == "changes" && brain.open == null) continue
+                                    NavigationDrawerItem(
+                                        label = { Text(label) }, selected = false,
+                                        onClick = { brain.screens.add(destination); close() },
+                                    )
+                                }
+                                NavigationDrawerItem(
+                                    label = { Text(tr("Импорт чата", "Import chat")) },
+                                    selected = false,
+                                    onClick = { load.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
+                                )
+                            }
+                        }
+                    }
                 }
             }
             var last = ""
@@ -195,38 +206,6 @@ fun Drawer(brain: Brain, close: () -> Unit) {
                 Text(tr("Здесь будут ваши чаты", "Your chats will be here"), color = MaterialTheme.colorScheme.onSurfaceVariant,
                     style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(16.dp))
             }
-        }
-        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            NavigationDrawerItem(
-                label = { Text(tr("Загрузить диалог", "Import a chat")) },
-                icon = { Icon(Icons.Outlined.FileUpload, null) },
-                selected = false,
-                onClick = { load.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
-            )
-            NavigationDrawerItem(
-                label = { Text(tr("Лимиты", "Limits")) },
-                icon = { Icon(Icons.Outlined.DataUsage, null) },
-                selected = false,
-                onClick = { brain.screens.add("limits"); close() },
-            )
-            NavigationDrawerItem(
-                label = { Text(tr("Скиллы и MCP", "Skills and MCP")) },
-                icon = { Icon(Icons.Outlined.Extension, null) },
-                selected = false,
-                onClick = { brain.screens.add("tools"); close() },
-            )
-            NavigationDrawerItem(
-                label = { Text(tr("Провайдеры и модели", "Providers and models")) },
-                icon = { Icon(Icons.Outlined.Hub, null) },
-                selected = false,
-                onClick = { brain.screens.add("providers"); close() },
-            )
-            NavigationDrawerItem(
-                label = { Text(tr("Настройки", "Settings")) },
-                icon = { Icon(Icons.Outlined.Settings, null) },
-                selected = false,
-                onClick = { brain.screens.add("settings"); close() },
-            )
         }
     }
 

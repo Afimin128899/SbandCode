@@ -125,7 +125,7 @@ fun SettingsScreen(brain: Brain, back: () -> Unit) {
                 Text(tr("Внутри работает настоящий opencode 2.2.5 (MIT), собранный под Android на официальном Bun. Ключи и чаты хранятся только на телефоне.",
                     "Inside runs real opencode 2.2.5 (MIT), built for Android on the official Bun. Keys and chats stay on the phone."),
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(tr("На основе MargyCode от Narezany · лицензия MIT", "Based on MargyCode by Narezany · MIT license"),
+                Text(tr("Лицензия MIT", "MIT license"),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton({ uri.openUri("https://github.com/Afimin128899/SbandCode") }) { Text("GitHub") }

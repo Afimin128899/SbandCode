@@ -32,9 +32,9 @@ class ClaudeCode(private val context: Context, private val engine: Engine) {
     /** What every process that may run `claude` needs to find it and the network. */
     fun env(): Map<String, String> = mapOf(
         "OPENCODE_CLAUDE_PATH" to "$libs/libclaude.so",
-        "MARGY_LDMUSL" to "$libs/libldmusl.so",
-        "MARGY_CLAUDE_BIN" to bin.absolutePath,
-        "MARGY_RESOLV" to resolv.absolutePath,
+        "SBANDCODE_LDMUSL" to "$libs/libldmusl.so",
+        "SBANDCODE_CLAUDE_BIN" to bin.absolutePath,
+        "SBANDCODE_RESOLV" to resolv.absolutePath,
         // there is no browser to open from inside; the app opens the link itself
         "BROWSER" to "/system/bin/true",
         "DISABLE_AUTOUPDATER" to "1",

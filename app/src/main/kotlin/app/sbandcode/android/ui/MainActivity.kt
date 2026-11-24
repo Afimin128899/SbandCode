@@ -113,7 +113,6 @@ private fun Root(brain: Brain) {
             screen == "limits" -> LimitsScreen(brain, back)
             screen == "tools" -> ToolsScreen(brain, back)
             screen == "linux" -> LinuxScreen(brain, back)
-            screen == "account" -> AccountScreen(brain, back)
             screen == "local" -> LocalScreen(brain, back)
             screen == "search" -> ChatSearchScreen(brain, back)
             screen == "profiles" -> ProfilesScreen(brain, back)
