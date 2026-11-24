@@ -14,9 +14,12 @@ import java.util.zip.ZipInputStream
 
 object SkillPackage {
     private const val MAX_BYTES = 12 * 1024 * 1024
+    private const val BUNDLE_INFO = ".sbandcode-bundle"
+    data class Installed(val title: String, val count: Int, val bundle: Boolean = false)
+
     private val namePattern = Regex("""(?m)^name:[ \t]*["']?([^"'\r\n]+)""")
 
-    fun installFromUrl(directory: File, url: String): String {
+    fun installFromUrl(directory: File, url: String): Installed {
         val address = URI(url.trim())
         requireHttps(address)
         val parts = address.rawPath.orEmpty().removePrefix("/").trimEnd('/').split('/')
@@ -38,7 +41,7 @@ object SkillPackage {
         return install(directory, bytes, name, remote = true)
     }
 
-    private fun installRepository(directory: File, owner: String, repo: String): String {
+    private fun installRepository(directory: File, owner: String, repo: String): Installed {
         val api = "https://api.github.com/repos/$owner/$repo"
         val head = githubJson("$api/commits/HEAD").getString("sha")
         check(head.matches(Regex("[a-f0-9]{40}"))) { "Invalid GitHub commit" }
@@ -46,36 +49,38 @@ object SkillPackage {
         check(!tree.optBoolean("truncated")) {
             tr("Список файлов GitHub неполный. Используйте ссылку на SKILL.md.", "GitHub returned an incomplete file list. Link to SKILL.md.")
         }
-        val files = tree.optJSONArray("tree").objects().filter { it.str("type") == "blob" && it.str("mode") in setOf("100644", "100755") }
-        val manifests = files.mapNotNull { it.str("path") }.filter { it.substringAfterLast('/') == "SKILL.md" }
-        val skill = listOf("SKILL.md", "skills/$repo/SKILL.md", "$repo/SKILL.md", ".agents/skills/$repo/SKILL.md",
-            ".claude/skills/$repo/SKILL.md", ".openclaw/skills/$repo/SKILL.md")
-            .firstOrNull { candidate -> manifests.any { it.equals(candidate, ignoreCase = true) } }
-            ?.let { candidate -> manifests.first { it.equals(candidate, ignoreCase = true) } }
-            ?: manifests.singleOrNull()
-            ?: error(if (manifests.isEmpty()) tr("В репозитории нет SKILL.md.", "There's no SKILL.md in the repository.")
-                else tr("В репозитории несколько скиллов. Укажите ссылку на нужный SKILL.md.", "There are several skills. Link to the chosen SKILL.md."))
-        val root = skill.substringBeforeLast('/', "")
-        val selected = files.mapNotNull { entry ->
-            val path = entry.str("path") ?: return@mapNotNull null
-            if (root.isNotEmpty() && !path.startsWith("$root/")) return@mapNotNull null
-            path to entry.optLong("size", 0)
-        }
-        check(selected.size <= 512 && selected.sumOf { it.second } <= MAX_BYTES) {
-            tr("Папка скилла слишком большая. Используйте ссылку на SKILL.md или ZIP скилла.",
-                "The skill directory is too large. Link to SKILL.md or a skill ZIP.")
+        val files = tree.optJSONArray("tree").objects()
+            .filter { it.str("type") == "blob" && it.str("mode") in setOf("100644", "100755") }
+            .mapNotNull { entry -> entry.str("path")?.let { it to entry.optLong("size") } }.toMap()
+        val manifests = manifestPaths(files.keys)
+        check(manifests.size <= 128) {
+            tr("В репозитории слишком много скиллов. Укажите ссылку на SKILL.md.", "Too many skills. Link to an individual SKILL.md.")
         }
         var remaining = MAX_BYTES
         val entries = linkedMapOf<String, ByteArray>()
-        for ((path, _) in selected) {
-            val relative = if (root.isEmpty()) path else path.removePrefix("$root/")
-            validatePath(relative)
+        fun fetch(path: String) {
+            validatePath(path)
+            check(files.getValue(path) <= remaining) { tr("Набор скиллов слишком большой.", "The skill bundle is too large.") }
             val raw = URI("https", "raw.githubusercontent.com", "/$owner/$repo/$head/$path", null)
             val (bytes, _) = download(raw, remaining)
             remaining -= bytes.size
-            entries[relative] = bytes
+            entries[path] = bytes
         }
-        return installEntries(directory, entries, "SKILL.md", repo, remote = true)
+
+        manifests.forEach(::fetch)
+        val chosen = selectedManifests(entries, manifests, remote = true)
+        val roots = manifests.map { it.substringBeforeLast('/', "") }.toSet()
+        val chosenRoots = chosen.map { it.substringBeforeLast('/', "") }.toSet()
+        val support = files.keys.filter { path ->
+            if (path in entries) return@filter false
+            val root = owningRoot(path, roots) ?: return@filter false
+            root in chosenRoots && (root.isNotEmpty() || path.substringBefore('/') in setOf("scripts", "references", "assets"))
+        }
+        check(support.size + manifests.size <= 512) {
+            tr("В наборе слишком много файлов.", "The bundle contains too many files.")
+        }
+        support.forEach(::fetch)
+        return installDownloaded(directory, entries, manifests, repo, "$owner-$repo", remote = true)
     }
 
     private fun githubJson(url: String) = JSONObject(download(URI(url)).first.toString(Charsets.UTF_8))
@@ -121,37 +126,87 @@ object SkillPackage {
         }
     }
 
-    fun install(directory: File, bytes: ByteArray, name: String, remote: Boolean): String {
+    fun install(directory: File, bytes: ByteArray, name: String, remote: Boolean): Installed {
         val zipped = name.endsWith(".zip", true) || bytes.take(2) == listOf(80.toByte(), 75.toByte())
         val entries = if (zipped) unzip(bytes) else mapOf("SKILL.md" to bytes)
-        val skill = entries.keys.filter { it.substringAfterLast('/') == "SKILL.md" }.minByOrNull { it.count { c -> c == '/' } }
-            ?: error(tr("В архиве нет SKILL.md.", "There's no SKILL.md in the archive."))
-        return installEntries(directory, entries, skill, name, remote)
+        val label = name.substringBeforeLast('.').ifBlank { "Skills" }
+        return installDownloaded(directory, entries, manifestPaths(entries.keys), label, label, remote)
     }
 
-    @Synchronized
-    private fun installEntries(directory: File, entries: Map<String, ByteArray>, skill: String, name: String, remote: Boolean): String {
-        val root = skill.substringBeforeLast('/', "")
-        val text = entries.getValue(skill).toString(Charsets.UTF_8)
-        val header = text.removePrefix("\uFEFF").replace("\r\n", "\n").takeIf { it.startsWith("---\n") }
-            ?.substringAfter("\n")?.substringBefore("\n---", "")
-        val title = header?.let { namePattern.find(it)?.groupValues?.get(1)?.trim() }
-        if (remote) check(!title.isNullOrBlank()) {
-            tr("Файл должен быть SKILL.md с полем name в заголовке.", "The file must be SKILL.md with a name in its front matter.")
+    private fun manifestPaths(paths: Set<String>): List<String> =
+        paths.filter { it.substringAfterLast('/') == "SKILL.md" }
+            .sortedWith(compareBy<String> {
+                when {
+                    it.startsWith("skills/") -> 0
+                    it.split('/').any { segment -> segment.startsWith('.') } -> 2
+                    else -> 1
+                }
+            }.thenBy { it.count { c -> c == '/' } }.thenBy { it })
+
+    private fun skillName(data: ByteArray): String? {
+        val text = data.toString(Charsets.UTF_8).removePrefix("\uFEFF").replace("\r\n", "\n")
+        val header = text.takeIf { it.startsWith("---\n") }?.substringAfter("\n")?.substringBefore("\n---", "")
+        return header?.let { namePattern.find(it)?.groupValues?.get(1)?.trim() }?.takeIf { it.isNotBlank() }
+    }
+
+    private fun selectedManifests(entries: Map<String, ByteArray>, manifests: List<String>, remote: Boolean): List<String> {
+        check(manifests.isNotEmpty()) { tr("В пакете нет SKILL.md.", "There's no SKILL.md in the package.") }
+        return manifests.distinctBy { path ->
+            val name = skillName(entries.getValue(path))
+            if (remote || manifests.size > 1) check(name != null) {
+                tr("У $path нет поля name в заголовке.", "$path is missing a front-matter name.")
+            }
+            name ?: path
         }
-        val fallback = root.substringAfterLast('/').ifBlank { name.substringBeforeLast('.') }
-        val slug = (title ?: fallback).lowercase().replace(Regex("[^a-z0-9._-]+"), "-")
-            .trim('.', '-').ifBlank { "skill" }.take(100)
-        val destination = File(directory, slug)
-        if (remote) check(!destination.exists()) { tr("Скилл «$slug» уже установлен.", "The skill '$slug' is already installed.") }
+    }
+
+    private fun owningRoot(path: String, roots: Set<String>): String? =
+        roots.filter { it.isEmpty() || path.startsWith("$it/") }.maxByOrNull { it.length }
+
+    private fun slug(title: String): String = title.lowercase()
+        .replace(Regex("[^a-z0-9._-]+"), "-").trim('.', '-').ifBlank { "skill" }.take(100)
+
+    @Synchronized
+    private fun installDownloaded(
+        directory: File,
+        entries: Map<String, ByteArray>,
+        manifests: List<String>,
+        label: String,
+        key: String,
+        remote: Boolean,
+    ): Installed {
+        val chosen = selectedManifests(entries, manifests, remote)
+        val roots = manifests.map { it.substringBeforeLast('/', "") }.toSet()
+        val bundled = chosen.size > 1
+        val first = chosen.first()
+        val title = skillName(entries.getValue(first)) ?: first.substringBeforeLast('/', "").substringAfterLast('/').ifBlank { label }
+        val folder = if (bundled) "pack-${slug(key)}" else slug(title)
+        val destination = File(directory, folder)
+        val ownBundle = bundled && File(destination, BUNDLE_INFO).takeIf(File::isFile)?.readText() == label
+        if (remote) check(!destination.exists() || ownBundle) {
+            tr("Скилл или набор «$folder» уже установлен.", "The skill or bundle '$folder' is already installed.")
+        }
         directory.mkdirs()
         val staging = Files.createTempDirectory(directory.parentFile!!.toPath(), ".skill-").toFile()
         val fresh = File(staging, "new").apply { mkdir() }
         val previous = File(staging, "previous")
         try {
+            if (bundled) File(fresh, BUNDLE_INFO).writeText(label)
+            val destinations = chosen.associate { manifest ->
+                val root = manifest.substringBeforeLast('/', "")
+                val name = skillName(entries.getValue(manifest)) ?: title
+                val member = if (bundled) File(fresh, slug(name)) else fresh
+                if (bundled) check(member.mkdir()) {
+                    tr("В наборе повторяется имя скилла «$name».", "Duplicate skill folder for '$name'.")
+                }
+                root to member
+            }
             for ((path, data) in entries) {
-                if (root.isNotEmpty() && !path.startsWith("$root/")) continue
-                val out = File(fresh, if (root.isEmpty()) path else path.removePrefix("$root/"))
+                val root = owningRoot(path, roots) ?: continue
+                val member = destinations[root] ?: continue
+                val relative = if (root.isEmpty()) path else path.removePrefix("$root/")
+                validatePath(relative)
+                val out = File(member, relative)
                 out.parentFile?.mkdirs()
                 out.writeBytes(data)
             }
@@ -165,7 +220,19 @@ object SkillPackage {
         } finally {
             if (!previous.exists() || destination.exists()) staging.deleteRecursively()
         }
-        return title ?: slug
+        return Installed(if (bundled) label else title, chosen.size, bundled)
+    }
+
+    fun listBundleMembers(directory: File): List<JSONObject> = directory.listFiles().orEmpty().flatMap { bundle ->
+        val marker = File(bundle, BUNDLE_INFO)
+        if (!marker.isFile || bundle.canonicalFile.parentFile != directory.canonicalFile) return@flatMap emptyList()
+        val label = marker.readText()
+        bundle.listFiles().orEmpty().mapNotNull { member ->
+            val manifest = File(member, "SKILL.md")
+            if (!manifest.isFile || member.canonicalFile.parentFile != bundle.canonicalFile) return@mapNotNull null
+            val name = skillName(manifest.inputStream().use { read(it) }) ?: return@mapNotNull null
+            JSONObject().put("name", name).put("path", manifest.absolutePath).put("bundle", label).put("bundleID", bundle.name)
+        }
     }
 
     private fun validatePath(path: String) {

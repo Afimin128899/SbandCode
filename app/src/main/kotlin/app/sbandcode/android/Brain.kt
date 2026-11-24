@@ -833,7 +833,19 @@ class Brain(app: Application) : AndroidViewModel(app) {
 
     val skillsDir get() = File(engine.config, "skills")
 
-    suspend fun skills(): List<JSONObject> = api.get("/api/skill").optJSONArray("data").objects()
+    suspend fun skills(): List<JSONObject> {
+        val registered = api.get("/api/skill").optJSONArray("data").objects()
+        return withContext(Dispatchers.IO) {
+            val bundled = SkillPackage.listBundleMembers(skillsDir).associateBy {
+                File(it.getString("path")).canonicalPath
+            }.toMutableMap()
+            val visible = registered.map { skill ->
+                val member = skill.str("path")?.let { bundled.remove(File(it).canonicalPath) }
+                if (member != null) skill.put("bundle", member.getString("bundle")).put("bundleID", member.getString("bundleID")) else skill
+            }
+            visible + bundled.values
+        }
+    }
 
     suspend fun mcpServers(): List<JSONObject> = api.get("/api/mcp").optJSONArray("data").objects()
 
@@ -864,11 +876,15 @@ class Brain(app: Application) : AndroidViewModel(app) {
         skillStatus = tr("Скачиваю скилл…", "Downloading skill…")
         viewModelScope.launch {
             try {
-                val title = withContext(Dispatchers.IO) {
+                val installed = withContext(Dispatchers.IO) {
                     SkillPackage.installFromUrl(skillsDir, address)
                 }
                 api.post("/api/location/reload")
-                skillStatus = tr("Скилл «$title» установлен. Он доступен в «Инструменты → Скиллы и MCP».",
+                val (title, count, bundle) = installed
+                skillStatus = if (bundle) tr(
+                    "Набор «$title» установлен. Скиллов в наборе: $count.",
+                    "Bundle '$title' installed with $count skills.",
+                ) else tr("Скилл «$title» установлен. Он доступен в «Инструменты → Скиллы и MCP».",
                     "Skill '$title' installed. Find it under Tools → Skills and MCP.")
             } catch (e: CancellationException) {
                 throw e

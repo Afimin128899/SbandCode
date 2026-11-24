@@ -5,6 +5,7 @@ import android.provider.OpenableColumns
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -22,6 +23,8 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.material.icons.outlined.Refresh
+import androidx.compose.material3.Surface
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.FilterChip
@@ -118,18 +121,30 @@ fun ToolsScreen(brain: Brain, back: () -> Unit) {
             if (list == null) CircularProgressIndicator(Modifier.padding(24.dp).size(22.dp), strokeWidth = 2.dp)
             else if (list.isEmpty()) Text(tr("Скиллов пока нет", "No skills yet"), color = MaterialTheme.colorScheme.outline,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 10.dp))
-            for (s in list.orEmpty()) Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(s.str("name") ?: s.str("id") ?: "?", style = MaterialTheme.typography.bodyLarge)
-                    s.str("description")?.let {
-                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+            for ((bundleId, members) in list.orEmpty().groupBy { it.str("bundleID") }) {
+                if (bundleId == null) {
+                    members.forEach { skill -> SkillRow(skill, brain, busy) { path -> work { brain.removeSkill(path) } } }
+                } else {
+                    val bundle = members.first().str("bundle") ?: bundleId
+                    var expanded by remember(bundleId) { mutableStateOf(false) }
+                    Surface(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp),
+                        shape = RoundedCornerShape(18.dp),
+                        color = MaterialTheme.colorScheme.surfaceContainer,
+                    ) {
+                        Column {
+                            TextButton({ expanded = !expanded }, Modifier.fillMaxWidth()) {
+                                val count = members.size
+                                Text(tr("$bundle · скиллов: $count", "$bundle · $count skills"), Modifier.weight(1f))
+                                Text(if (expanded) "−" else "+")
+                            }
+                            AnimatedVisibility(expanded) {
+                                Column {
+                                    members.forEach { skill -> SkillRow(skill, brain, busy) { path -> work { brain.removeSkill(path) } } }
+                                }
+                            }
+                        }
                     }
-                }
-                val path = s.str("path").orEmpty()
-                if (brain.removable(path)) IconButton({ work { brain.removeSkill(path) } }) {
-                    Icon(Icons.Outlined.Delete, tr("Удалить", "Delete"))
                 }
             }
             OutlinedButton({ pick.launch(arrayOf("*/*")) }, enabled = !busy, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
@@ -172,6 +187,24 @@ fun ToolsScreen(brain: Brain, back: () -> Unit) {
     }
 
     if (adding) McpDialog(onDone = { name, server -> adding = false; work { brain.addMcp(name, server) } }, onCancel = { adding = false })
+}
+
+@Composable
+private fun SkillRow(skill: JSONObject, brain: Brain, busy: Boolean, remove: (String) -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+        verticalAlignment = Alignment.CenterVertically) {
+        Column(Modifier.weight(1f)) {
+            Text(skill.str("name") ?: skill.str("id") ?: "?", style = MaterialTheme.typography.bodyLarge)
+            skill.str("description")?.let {
+                Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+        }
+        val path = skill.str("path").orEmpty()
+        if (brain.removable(path)) IconButton({ remove(path) }, enabled = !busy) {
+            Icon(Icons.Outlined.Delete, tr("Удалить", "Delete"))
+        }
+    }
 }
 
 @Composable
