@@ -21,7 +21,7 @@ Android 9 and up, arm64 only. No root. Provider credentials and chat history are
 
 ## What it does
 
-Open the folder in the chat header to find chats and expandable tool groups. The folder beside the composer holds attachments, model options, and the working directory.
+Use the Chat, Tools, and Settings tabs to switch between your conversation, project tools, and app preferences. The chat header opens history or the model picker. The plus button in the composer opens attachments, model options, and the working directory.
 
 - Review the files changed in the latest agent turn, copy a patch, or reverse a Git patch when the edited file still matches.
 - Search chat titles and messages by project, fork a chat at a message, and share text or a file from Android to a new or current chat.
@@ -34,9 +34,7 @@ Open the folder in the chat header to find chats and expandable tool groups. The
 <summary><b>Every model opencode knows</b></summary>
 
 OpenCode Go and Zen, opencode's free models, sign-in with ChatGPT and GitHub
-Copilot, and an API key for any provider on models.dev. Your own providers, such
-as LM Studio, Ollama or a proxy, go into `opencode.json` as on a computer: the
-app has an editor for it, and you can paste the whole file.
+Copilot, and an API key for any provider on models.dev. OpenAI-compatible endpoints such as LM Studio, Ollama or a proxy can be added in **Settings → Custom API and models**. Enter the base URL, an API key if required, and model IDs manually or load them from the server. Advanced provider configuration is available in the `opencode.json` editor.
 
 The free models have a usage limit. On a VPN it can show up as already used, and
 the same models answered without one, so it seems to be counted by IP address.

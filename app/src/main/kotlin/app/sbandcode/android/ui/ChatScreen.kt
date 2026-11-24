@@ -54,7 +54,10 @@ import androidx.compose.material.icons.outlined.ErrorOutline
 import androidx.compose.material.icons.outlined.ExpandLess
 import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.FolderOpen
+import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Menu
+import androidx.compose.runtime.saveable.listSaver
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Stop
@@ -62,7 +65,6 @@ import androidx.compose.material.icons.outlined.TaskAlt
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.TopAppBar
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -131,8 +133,11 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
     val running = id != null && brain.isRunning(id)
     var picker by remember { mutableStateOf(false) }
     var showQueue by remember(id) { mutableStateOf(false) }
-    var text by remember(id) { mutableStateOf("") }
-    val pictures = remember(id) { mutableStateListOf<String>() }
+    var text by rememberSaveable(id) { mutableStateOf("") }
+    val pictures = rememberSaveable(id, saver = listSaver(
+        save = { it.toList() },
+        restore = { mutableStateListOf(*it.toTypedArray()) },
+    )) { mutableStateListOf<String>() }
     var editing by remember(id) { mutableStateOf<Message?>(null) }
     var editedText by remember(id) { mutableStateOf("") }
     val scope = rememberCoroutineScope()
@@ -155,32 +160,23 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
     Column(Modifier.fillMaxSize()) {
         TopAppBar(
             navigationIcon = {
-                IconButton(openDrawer) { Icon(Icons.Outlined.FolderOpen, tr("Открыть папку чатов", "Open chat folder")) }
+                IconButton(openDrawer) { Icon(Icons.Outlined.Menu, tr("История чатов", "Chat history")) }
             },
             title = {
-                Text("SbandCode", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
-            },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
-        )
-        Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Text(brain.session()?.title?.takeIf { it.isNotBlank() } ?: tr("Новый чат", "New chat"),
-                Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                style = MaterialTheme.typography.titleSmall)
-            Surface(
-                shape = RoundedCornerShape(12.dp),
-                color = MaterialTheme.colorScheme.surfaceContainer,
-                modifier = Modifier.widthIn(max = 170.dp).clip(RoundedCornerShape(12.dp))
-                    .clickable(enabled = brain.ready) { picker = true },
-            ) {
-                Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(model?.name ?: tr("Модель", "Model"), Modifier.weight(1f, fill = false), maxLines = 1,
-                        overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelLarge)
-                    Icon(Icons.Outlined.KeyboardArrowDown, null, Modifier.size(16.dp))
+                Row(Modifier.clip(RoundedCornerShape(12.dp)).clickable(enabled = brain.ready) { picker = true }
+                    .padding(vertical = 7.dp, horizontal = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Text(model?.name ?: "SbandCode", Modifier.weight(1f, fill = false), maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleLarge)
+                    if (brain.ready) Icon(Icons.Outlined.KeyboardArrowDown, tr("Выбрать модель", "Choose model"), Modifier.size(18.dp))
                 }
-            }
-        }
-        HorizontalDivider()
+            },
+            actions = {
+                IconButton({ brain.openSession(null) }, enabled = id != null) {
+                    Icon(Icons.Outlined.Add, tr("Новый чат", "New chat"))
+                }
+            },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
+        )
 
         Box(Modifier.weight(1f).fillMaxWidth()) {
             val shown = brain.shown()
@@ -383,18 +379,15 @@ private fun Starting(brain: Brain) {
 
 @Composable
 private fun Welcome(brain: Brain) {
-    Box(Modifier.fillMaxSize().padding(20.dp), contentAlignment = Alignment.Center) {
-        Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(20.dp),
-            modifier = Modifier.widthIn(max = 440.dp).fillMaxWidth()) {
-            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Logo(56)
-                Text(tr("Начните разговор", "Start a conversation"), style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold)
-                Text(if (brain.currentModel() == null) tr(
-                    "Выберите модель или подключите провайдера в папке «Инструменты».",
-                    "Pick a model or connect a provider from the Tools folder.",
-                ) else tr("Напишите вопрос или опишите задачу для проекта.", "Ask a question or describe a project task."),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Column(Modifier.fillMaxSize().padding(horizontal = 28.dp),
+        verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+        Logo(48)
+        Spacer(Modifier.height(16.dp))
+        Text(tr("Над чем поработаем?", "What are we working on?"),
+            style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+        if (brain.currentModel() == null) {
+            TextButton({ brain.screens.add("settings"); brain.screens.add("providers") }) {
+                Text(tr("Подключить провайдера", "Connect a provider"))
             }
         }
     }
@@ -683,7 +676,7 @@ private fun Composer(
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton({ extras = !extras }) {
-                    Icon(Icons.Outlined.FolderOpen, if (extras) tr("Скрыть параметры сообщения", "Hide message options")
+                    Icon(Icons.Outlined.Add, if (extras) tr("Скрыть параметры сообщения", "Hide message options")
                         else tr("Открыть параметры сообщения", "Open message options"))
                 }
                 Spacer(Modifier.weight(1f))

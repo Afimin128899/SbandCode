@@ -2,11 +2,6 @@ package app.sbandcode.android.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.material.icons.outlined.Folder
-import androidx.compose.material.icons.outlined.KeyboardArrowDown
-import androidx.compose.material.icons.outlined.KeyboardArrowUp
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Box
@@ -108,53 +103,24 @@ fun Drawer(brain: Brain, close: () -> Unit) {
             Text("SbandCode", Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge,
                 fontWeight = FontWeight.SemiBold)
         }
-        var expanded by rememberSaveable { mutableStateOf(false) }
         LazyColumn(Modifier.weight(1f).padding(horizontal = 12.dp)) {
-            item(key = "workspace-folder") {
-                Surface(color = MaterialTheme.colorScheme.surfaceContainer, shape = RoundedCornerShape(18.dp)) {
-                    Column(Modifier.fillMaxWidth().padding(4.dp)) {
-                        NavigationDrawerItem(
-                            label = { Text(tr("Инструменты", "Tools")) },
-                            icon = { Icon(Icons.Outlined.Folder, null) },
-                            badge = { Icon(if (expanded) Icons.Outlined.KeyboardArrowUp else Icons.Outlined.KeyboardArrowDown, null) },
-                            selected = expanded,
-                            onClick = { expanded = !expanded },
-                        )
-                        AnimatedVisibility(expanded) {
-                            Column {
-                                NavigationDrawerItem(
-                                    label = { Text(tr("Новый чат", "New chat")) },
-                                    icon = { Icon(Icons.Outlined.Add, null) },
-                                    selected = false,
-                                    onClick = { brain.openSession(null); close() },
-                                )
-                                for ((destination, label) in listOf(
-                                    "search" to tr("Поиск по чатам", "Search chats"),
-                                    "changes" to tr("Правки агента", "Agent changes"),
-                                    "profiles" to tr("Профили проектов", "Project profiles"),
-                                    "git" to "Git",
-                                    "preview" to tr("Веб-предпросмотр", "Web preview"),
-                                    "providers" to tr("Провайдеры и модели", "Providers and models"),
-                                    "local" to tr("Локальные модели", "Local models"),
-                                    "limits" to tr("Лимиты", "Limits"),
-                                    "tools" to tr("Скиллы и MCP", "Skills and MCP"),
-                                    "settings" to tr("Настройки", "Settings"),
-                                )) {
-                                    if (destination == "changes" && brain.open == null) continue
-                                    NavigationDrawerItem(
-                                        label = { Text(label) }, selected = false,
-                                        onClick = { brain.screens.add(destination); close() },
-                                    )
-                                }
-                                NavigationDrawerItem(
-                                    label = { Text(tr("Импорт чата", "Import chat")) },
-                                    selected = false,
-                                    onClick = { load.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
-                                )
-                            }
-                        }
-                    }
-                }
+            item(key = "chat-actions") {
+                NavigationDrawerItem(
+                    label = { Text(tr("Новый чат", "New chat")) },
+                    icon = { Icon(Icons.Outlined.Add, null) },
+                    selected = false,
+                    onClick = { brain.openSession(null); close() },
+                )
+                NavigationDrawerItem(
+                    label = { Text(tr("Поиск по чатам", "Search chats")) },
+                    selected = false,
+                    onClick = { brain.screens.add("search"); close() },
+                )
+                NavigationDrawerItem(
+                    label = { Text(tr("Импорт чата", "Import chat")) },
+                    selected = false,
+                    onClick = { load.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
+                )
             }
             var last = ""
             val list = brain.sessions.sortedByDescending { it.updated }

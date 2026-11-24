@@ -59,6 +59,16 @@ fun SettingsScreen(brain: Brain, back: () -> Unit) {
     }
     Page(tr("Настройки", "Settings"), back) { mod ->
         Column(mod.verticalScroll(rememberScrollState()).navigationBarsPadding().imePadding()) {
+            Section(tr("Модели и подключение", "Models and connections"))
+            for ((destination, label) in listOf(
+                "custom-api" to tr("Свой API и модели", "Custom API and models"),
+                "providers" to tr("Провайдеры и ключи API", "Providers and API keys"),
+                "local" to tr("Локальные модели", "Local models"),
+                "limits" to tr("Лимиты и использование", "Limits and usage"),
+            )) {
+                TextButton({ brain.screens.add(destination) }, Modifier.padding(start = 12.dp)) { Text(label) }
+            }
+
             Section(tr("Уведомления", "Notifications"))
             TextButton({
                 if (Build.VERSION.SDK_INT >= 33 &&
@@ -94,18 +104,6 @@ fun SettingsScreen(brain: Brain, back: () -> Unit) {
                 }
             }
             if (folders) FolderDialog(brain) { folders = false }
-            Row(Modifier.fillMaxWidth().clickable { brain.screens.add("linux") }.padding(horizontal = 24.dp, vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) {
-                    Text(tr("Linux для модели", "Linux for the model"))
-                    Text(when {
-                        !brain.linux.installed -> tr("Не установлен: команды идут в оболочку Android", "Not installed: commands go to Android's shell")
-                        brain.prefs.linux -> "Alpine ${brain.linux.version.orEmpty()}"
-                        else -> tr("Установлен, выключен", "Installed, off")
-                    }, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-            }
-
             Section(tr("Данные", "Data"))
             Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedButton({ brain.screens.add("config") }) { Text(tr("Настройки opencode (opencode.json)", "opencode settings (opencode.json)")) }

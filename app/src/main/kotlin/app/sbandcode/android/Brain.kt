@@ -14,6 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.sbandcode.android.data.Ask
+import app.sbandcode.android.data.CustomApi
 import app.sbandcode.android.data.Integration
 import app.sbandcode.android.data.Message
 import app.sbandcode.android.data.Model
@@ -804,6 +805,19 @@ class Brain(app: Application) : AndroidViewModel(app) {
         val text = configFile.takeIf { it.exists() }?.readText().orEmpty()
         if (text.isBlank()) JSONObject().put("\$schema", "https://opencode.ai/config.json")
         else JSONObject(text.lines().filterNot { it.trimStart().startsWith("//") }.joinToString("\n"))
+    }
+
+    suspend fun customApi(): CustomApi = CustomApi.from(readConfig().optJSONObject("providers")?.optJSONObject(CustomApi.ID))
+
+    suspend fun saveCustomApi(profile: CustomApi) {
+        val config = readConfig()
+        val providers = config.optJSONObject("providers") ?: JSONObject().also { config.put("providers", it) }
+        providers.put(CustomApi.ID, profile.config(providers.optJSONObject(CustomApi.ID)))
+        saveConfig(config.toString(2))
+        check(models.any { it.provider == CustomApi.ID }) {
+            tr("Настройки сохранены. Перезапустите OpenCode, чтобы обновить список моделей.",
+                "Settings saved. Restart OpenCode to refresh the model list.")
+        }
     }
 
     suspend fun addMcp(name: String, server: JSONObject) {
