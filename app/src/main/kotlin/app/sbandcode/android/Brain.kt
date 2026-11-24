@@ -6,6 +6,7 @@ import android.graphics.BitmapFactory
 import android.graphics.ImageDecoder
 import android.net.Uri
 import android.os.Build
+import android.os.SystemClock
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
@@ -21,6 +22,7 @@ import app.sbandcode.android.data.Message
 import app.sbandcode.android.data.Model
 import app.sbandcode.android.data.Part
 import app.sbandcode.android.data.Prefs
+import app.sbandcode.android.data.ResponseRetry
 import app.sbandcode.android.data.Session
 import app.sbandcode.android.data.jsonOf
 import app.sbandcode.android.data.objects
@@ -45,6 +47,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.IOException
 import java.io.File
 import java.util.UUID
 
@@ -91,6 +94,9 @@ class Brain(app: Application) : AndroidViewModel(app) {
     var messages by mutableStateOf<List<Message>>(emptyList())
         private set
     val busy = mutableStateMapOf<String, Boolean>()
+    private val turnVersions = mutableMapOf<String, Long>()
+    private val checkTurnAfter = mutableMapOf<String, Long>()
+    private val retries = mutableStateMapOf<String, ResponseRetry>()
     data class FollowUp(val text: String, val pictures: List<String>, val key: String = "msg_" + UUID.randomUUID())
     private val followUps = mutableStateMapOf<String, List<FollowUp>>()
     private val posting = mutableStateMapOf<String, Boolean>()
@@ -126,6 +132,24 @@ class Brain(app: Application) : AndroidViewModel(app) {
     fun sendingFollowUp(id: String, key: String) = activeFollowUps[id] == key
 
     fun isRunning(id: String) = busy[id] == true || posting[id] == true
+
+    fun retryProgress(id: String?) = retries[id]
+
+    private fun setBusy(id: String, running: Boolean) {
+        turnVersions[id] = (turnVersions[id] ?: 0L) + 1L
+        busy[id] = running
+        if (!running) {
+            checkTurnAfter.remove(id)
+            retries.remove(id)
+        }
+    }
+
+    private fun finishTurn(id: String, pauseQueue: Boolean) {
+        setBusy(id, false)
+        updateService()
+        if (pauseQueue && followUpCount(id) > 0) pausedFollowUps[id] = true
+        else if (!pauseQueue) sendNextFollowUp(id)
+    }
     fun pendingFollowUps(id: String?) = followUps[id].orEmpty()
     fun followUpCount(id: String?) = pendingFollowUps(id).size
 
@@ -207,6 +231,32 @@ class Brain(app: Application) : AndroidViewModel(app) {
 
     init {
         startEngine()
+        viewModelScope.launch {
+            while (true) {
+                delay(6_000)
+                val id = open ?: continue
+                if (!ready || !isRunning(id) || posting[id] == true) continue
+                if (SystemClock.elapsedRealtime() < (checkTurnAfter[id] ?: 0L)) continue
+                try {
+                    reconcileTurn(id)
+                } catch (e: CancellationException) {
+                    throw e
+                } catch (_: Exception) {
+                    // The event listener handles a disconnected local engine.
+                }
+            }
+        }
+    }
+
+    private suspend fun reconcileTurn(id: String) {
+        val version = turnVersions[id]
+        val status = api.get("/api/session/${Api.enc(id)}").getJSONObject("data")
+        if (Session.from(status).busy || turnVersions[id] != version || posting[id] == true) return
+        loadMessages(id)
+        if (open != id || turnVersions[id] != version || posting[id] == true) return
+        val outcome = messages.lastOrNull()?.takeIf { it.role == "idle" }?.outcome
+        finishTurn(id, pauseQueue = outcome != "succeeded")
+        live.clear()
     }
 
     private suspend fun boot() {
@@ -284,7 +334,7 @@ class Brain(app: Application) : AndroidViewModel(app) {
     }
 
     private suspend fun loadSessions() {
-        val busyBeforeRefresh = busy.toMap()
+        val versions = turnVersions.toMap()
         val list = mutableListOf<Session>()
         val cursors = mutableSetOf<String>()
         var cursor: String? = null
@@ -297,7 +347,12 @@ class Brain(app: Application) : AndroidViewModel(app) {
         val visible = list.distinctBy { it.id }.filter { it.id !in temporarySessions }
         sessions.addAll(visible.sortedByDescending { it.updated })
         for (s in visible) {
-            if (posting[s.id] != true && busy[s.id] == busyBeforeRefresh[s.id]) busy[s.id] = s.busy
+            if (posting[s.id] == true || turnVersions[s.id] != versions[s.id]) continue
+            if (!s.busy && busy[s.id] == true) {
+                if (s.id == open || SystemClock.elapsedRealtime() < (checkTurnAfter[s.id] ?: 0L)) continue
+                if (followUpCount(s.id) > 0) pausedFollowUps[s.id] = true
+            }
+            if (s.busy != (busy[s.id] == true)) setBusy(s.id, s.busy)
         }
         updateService()
     }
@@ -318,7 +373,11 @@ class Brain(app: Application) : AndroidViewModel(app) {
             cursor = page.optJSONObject("cursor")?.str("next")
         } while (focus != null && raw.none { it.str("id") == focus } && cursor != null && cursors.add(cursor))
         val list = withContext(Dispatchers.IO) { raw.distinctBy { it.str("id") }.mapNotNull { Message.from(it, ::attachment) }.reversed() }
-        if (open == id && focusedMessage == focus) messages = list
+        if (open == id && focusedMessage == focus) {
+            messages = list
+            val retry = list.lastOrNull()?.retry
+            if (isRunning(id) && retry != null && retry.at > System.currentTimeMillis()) retries[id] = retry
+        }
     }
 
     /** The original attachment if it still exists, or a copy of the bytes from OpenCode. */
@@ -359,7 +418,7 @@ class Brain(app: Application) : AndroidViewModel(app) {
             delay(120)
             guard { loadMessages(id) }
             // once a turn is over the stored messages hold everything that streamed
-            if (settled && busy[id] != true) live.clear()
+            if (settled && open == id && !isRunning(id)) live.clear()
         }
     }
 
@@ -385,7 +444,12 @@ class Brain(app: Application) : AndroidViewModel(app) {
                 restart()
                 return
             }
-            guard { loadSessions(); followUps.keys.toList().forEach(::sendNextFollowUp) }
+            guard {
+                loadSessions()
+                open?.takeIf { isRunning(it) && posting[it] != true &&
+                    SystemClock.elapsedRealtime() >= (checkTurnAfter[it] ?: 0L) }?.let { reconcileTurn(it) }
+                followUps.keys.toList().forEach(::sendNextFollowUp)
+            }
             soonMessages()
         }
     }
@@ -397,6 +461,7 @@ class Brain(app: Application) : AndroidViewModel(app) {
         if (sid in temporarySessions) return
         when {
             type == "session.text.delta" || type == "session.reasoning.delta" -> {
+                if (sid != null) retries.remove(sid)
                 if (sid != open) return
                 val message = data.str("assistantMessageID") ?: return
                 val reasoning = type == "session.reasoning.delta"
@@ -407,15 +472,22 @@ class Brain(app: Application) : AndroidViewModel(app) {
                 else live[at] = Live(message, reasoning, ordinal, live[at].text + delta)
                 return
             }
-            type == "session.execution.started" && sid != null -> { busy[sid] = true; updateService() }
-            type.startsWith("session.execution.") && sid != null -> {
-                busy[sid] = false
+            type == "session.retry.scheduled" && sid != null -> {
+                ResponseRetry.from(data)?.let { retries[sid] = it }
+                setBusy(sid, true)
                 updateService()
+            }
+            type == "session.execution.started" && sid != null -> {
+                retries.remove(sid)
+                setBusy(sid, true)
+                updateService()
+            }
+            type in setOf("session.execution.succeeded", "session.execution.failed", "session.execution.interrupted") && sid != null -> {
+                finishTurn(sid, pauseQueue = type != "session.execution.succeeded")
                 soonSessions()
                 if (!foreground && type in setOf("session.execution.succeeded", "session.execution.failed")) {
                     ChatNotifications.show(ctx, sid, session(sid)?.title, false)
                 }
-                sendNextFollowUp(sid)
                 if (sid == open) { soonMessages(settled = true); return }
             }
             type == "session.created" || type == "session.renamed" || type == "session.deleted" ||
@@ -457,7 +529,7 @@ class Brain(app: Application) : AndroidViewModel(app) {
                 }
             }
             Message(m.id, m.role, parts = parts, model = m.model, error = m.error, tokensIn = m.tokensIn,
-                tokensOut = m.tokensOut, done = m.done)
+                tokensOut = m.tokensOut, errorType = m.errorType, retry = m.retry, done = m.done)
         }.toMutableList()
         for ((id, pieces) in byMessage) if (out.none { it.id == id }) {
             out += Message(id, "assistant", parts = pieces.map { part(it) }, done = false)
@@ -582,6 +654,9 @@ class Brain(app: Application) : AndroidViewModel(app) {
                 } catch (e: LocalConnectionError) {
                     if (open == id) shared = text to pictures
                     throw e
+                } catch (e: ApiError) {
+                    if (open == id && e.code in 400..499 && e.code != 409) shared = text to pictures
+                    throw e
                 }
                 loadSessions()
                 loadMessages(id)
@@ -622,27 +697,80 @@ class Brain(app: Application) : AndroidViewModel(app) {
         return api.get("/api/session/$id/inbox").optJSONArray("data").objects().any { it.str("id") == key }
     }
 
-    private suspend fun prompt(id: String, text: String, pictures: List<String>, key: String? = null) {
+    private suspend fun prompt(id: String, text: String, pictures: List<String>, key: String = "msg_" + UUID.randomUUID()) {
         val files = JSONArray()
         for (p in pictures) files.put(jsonOf("uri" to Uri.fromFile(File(p)).toString(), "name" to File(p).name))
-        posting[id] = true
-        busy[id] = true
+        submitTurn(id) {
+            postInput(id, key, "prompt", jsonOf(
+                "id" to key, "text" to text.trim(), "files" to files.takeIf { it.length() > 0 },
+            ))
+        }
+    }
+
+    private suspend fun postInput(id: String, key: String, route: String, body: JSONObject) {
         try {
-            api.post("/api/session/$id/prompt", jsonOf("id" to key, "text" to text.trim(), "files" to files.takeIf { it.length() > 0 }))
+            api.post("/api/session/${Api.enc(id)}/$route", body)
+        } catch (failure: Exception) {
+            val uncertain = (failure is IOException && failure !is LocalConnectionError) ||
+                (failure is ApiError && failure.code == 409)
+            if (!uncertain) throw failure
+            val admitted = try {
+                wasAdmitted(id, key)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                false
+            }
+            if (!admitted) throw failure
+        }
+    }
+
+    private suspend fun submitTurn(id: String, request: suspend () -> Unit) {
+        posting[id] = true
+        retries.remove(id)
+        setBusy(id, true)
+        checkTurnAfter[id] = SystemClock.elapsedRealtime() + 8_000L
+        updateService()
+        try {
+            request()
         } catch (e: Exception) {
-            busy[id] = false
+            setBusy(id, false)
             updateService()
             throw e
         } finally {
             posting.remove(id)
         }
-        // A short turn can finish before its HTTP request returns.
         sendNextFollowUp(id)
+    }
+
+    fun continueResponse() {
+        val id = open ?: return
+        if (!ready || isRunning(id)) return
+        val tail = messages.lastOrNull() ?: return
+        if (tail.role != "idle" || tail.outcome != "failed") return
+        val key = "msg_" + UUID.nameUUIDFromBytes("sbandcode-continue:$id:${tail.id}".toByteArray(Charsets.UTF_8))
+        viewModelScope.launch {
+            guard {
+                if (isRunning(id)) return@guard
+                submitTurn(id) {
+                    postInput(id, key, "synthetic", jsonOf(
+                        "text" to "The previous response was interrupted. Continue from where you left off. Do not repeat completed work or already executed actions.",
+                        "id" to key,
+                    ))
+                }
+                loadMessages(id)
+            }
+        }
     }
 
     fun stop() {
         val id = open ?: return
-        viewModelScope.launch { guard { api.post("/api/session/$id/interrupt") } }
+        viewModelScope.launch {
+            guard {
+                val stopped = api.post("/api/session/$id/interrupt")
+                if (!stopped.optBoolean("interrupted")) reconcileTurn(id)
+            }
+        }
     }
 
     /** Rolls the chat back to before a message of the person's, then sends it again, changed or not. */

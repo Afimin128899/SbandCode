@@ -94,6 +94,16 @@ sealed interface Part {
     class Tool(val name: String, val status: String, val input: JSONObject, val output: String, val error: String?) : Part
 }
 
+data class ResponseRetry(val attempt: Int, val at: Long) {
+    companion object {
+        fun from(data: JSONObject?): ResponseRetry? {
+            val attempt = data?.optInt("attempt") ?: return null
+            val at = data.optLong("at")
+            return if (attempt > 0 && at > 0) ResponseRetry(attempt, at) else null
+        }
+    }
+}
+
 class Message(
     val id: String,
     /** user, assistant, or idle (the end of a turn, which carries its error) */
@@ -106,9 +116,17 @@ class Message(
     val outcome: String? = null,
     val tokensIn: Long = 0,
     val tokensOut: Long = 0,
+    val errorType: String? = null,
+    val retry: ResponseRetry? = null,
     val done: Boolean = true,
 ) {
     val user get() = role == "user"
+
+    val connectionInterrupted get() = error != null && (
+        errorType == "provider.transport" ||
+            error.contains("Connection lost while reading the response", ignoreCase = true) ||
+            error.contains("ECONNRESET", ignoreCase = true)
+    )
 
     companion object {
         fun error(o: JSONObject?): String? = o?.let { it.str("message") ?: it.str("type") }
@@ -141,11 +159,14 @@ class Message(
                     Message(id, "assistant", parts = parts,
                         model = o.optJSONObject("model")?.str("id"),
                         error = error(o.optJSONObject("error")),
+                        errorType = o.optJSONObject("error")?.str("type"),
+                        retry = ResponseRetry.from(o.optJSONObject("retry")),
                         tokensIn = tokens?.optLong("input") ?: 0,
                         tokensOut = (tokens?.optLong("output") ?: 0) + (tokens?.optLong("reasoning") ?: 0),
                         done = o.optJSONObject("time")?.has("completed") == true)
                 }
-                "idle" -> Message(id, "idle", outcome = o.str("outcome"), error = error(o.optJSONObject("error")))
+                "idle" -> Message(id, "idle", outcome = o.str("outcome"), error = error(o.optJSONObject("error")),
+                    errorType = o.optJSONObject("error")?.str("type"))
                 else -> null
             }
         }
