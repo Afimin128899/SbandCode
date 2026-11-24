@@ -2,6 +2,7 @@ package app.sbandcode.android.ui
 
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,6 +25,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
@@ -34,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,20 +60,30 @@ fun ModelSheet(brain: Brain, close: () -> Unit) {
     var query by remember { mutableStateOf("") }
     val current = brain.currentModel()
     val providers = brain.models.groupBy { it.provider }
-    ModalBottomSheet(close, sheetState = state, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+    ModalBottomSheet(
+        onDismissRequest = close,
+        sheetState = state,
+        containerColor = GlassSheetColor,
+        shape = GlassSheetShape,
+        dragHandle = { GlassSheetHandle() },
+    ) {
         Column(Modifier.fillMaxHeight(0.92f)) {
+            Text(tr("Модели", "Models"), style = MaterialTheme.typography.titleLarge,
+                modifier = Modifier.padding(start = 22.dp, end = 22.dp, bottom = 12.dp))
+            val searchShape = RoundedCornerShape(22.dp)
             OutlinedTextField(
                 query, { query = it },
                 placeholder = { Text(tr("Поиск моделей", "Search models")) },
                 leadingIcon = { Icon(Icons.Outlined.Search, null) },
                 singleLine = true,
-                shape = RoundedCornerShape(28.dp),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                shape = searchShape,
+                colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = Color.Transparent),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp).blackGlass(searchShape),
             )
             val q = query.trim().lowercase()
             fun matches(m: Model) = q.isEmpty() || m.name.lowercase().contains(q) || m.id.lowercase().contains(q) ||
                 brain.providerName(m.provider).lowercase().contains(q)
-            LazyColumn(Modifier.weight(1f), contentPadding = androidx.compose.foundation.layout.PaddingValues(vertical = 8.dp)) {
+            LazyColumn(Modifier.weight(1f), contentPadding = PaddingValues(vertical = 8.dp)) {
                 if (providers.isEmpty()) item {
                     Text(tr("opencode пока не нашёл ни одной модели.", "opencode has found no models yet."),
                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(24.dp))
@@ -112,8 +125,10 @@ private fun Header(text: String) {
 @Composable
 private fun ModelRow(brain: Brain, m: Model, current: Model?, close: () -> Unit) {
     val chosen = current?.ref == m.ref
+    val selection = if (chosen) Modifier.blackGlass(RoundedCornerShape(18.dp), prominent = true) else Modifier
     Row(
-        Modifier.fillMaxWidth().clickable { brain.pick(m); close() }.padding(start = 24.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
+        Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 2.dp).then(selection)
+            .clickable { brain.pick(m); close() }.padding(start = 12.dp, end = 2.dp, top = 4.dp, bottom = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {

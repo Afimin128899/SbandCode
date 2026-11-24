@@ -14,8 +14,26 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.width
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -32,6 +50,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.WindowInsets
@@ -66,6 +85,7 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private val brain: Brain by viewModels()
+    private var windowActive by mutableStateOf(false)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         enableEdgeToEdge(
@@ -75,19 +95,29 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         if (savedInstanceState == null) take(intent)
         setContent {
+            val systemMotion by rememberSystemMotion()
             SbandTheme {
-                Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) { Root(brain) }
+                CompositionLocalProvider(LocalGlassMotion provides (systemMotion && windowActive)) {
+                    Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.surface) {
+                        Box(Modifier.fillMaxSize()) {
+                            GlassBackdrop(Modifier.matchParentSize())
+                            Root(brain)
+                        }
+                    }
+                }
             }
         }
     }
 
     override fun onResume() {
         super.onResume()
+        windowActive = true
         brain.foreground = true
         brain.checkFiles()
     }
 
     override fun onPause() {
+        windowActive = false
         brain.foreground = false
         super.onPause()
     }
@@ -130,13 +160,18 @@ private fun Root(brain: Brain) {
     BackHandler(top != null) { brain.screens.removeAt(brain.screens.lastIndex) }
     BackHandler(top == null && drawer.isOpen) { scope.launch { drawer.close() } }
     val saved = rememberSaveableStateHolder()
+    val motion = LocalGlassMotion.current
     val showTabs = (top == null || top == "workspace" || top == "settings") &&
         WindowInsets.ime.getBottom(LocalDensity.current) == 0 && !drawer.isOpen
     Column(Modifier.fillMaxSize().imePadding()) {
         Box(Modifier.weight(1f).then(
             if (showTabs) Modifier.consumeWindowInsets(WindowInsets.navigationBars) else Modifier,
         )) {
-            AnimatedContent(top, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "screen") { screen ->
+            AnimatedContent(top, transitionSpec = {
+                if (!motion) EnterTransition.None togetherWith ExitTransition.None
+                else (fadeIn(tween(220)) + slideInHorizontally(tween(260)) { it / 12 }) togetherWith
+                    (fadeOut(tween(150)) + slideOutHorizontally(tween(190)) { -it / 14 })
+            }, label = "screen") { screen ->
                 val back = { if (brain.screens.isNotEmpty()) brain.screens.removeAt(brain.screens.lastIndex) }
                 when {
                     screen == null -> saved.SaveableStateProvider("chat") {
@@ -190,36 +225,48 @@ private fun Root(brain: Brain) {
 @Composable
 private fun MainDock(selected: String?, onSelect: (String?) -> Unit) {
     val scheme = MaterialTheme.colorScheme
+    val motion = LocalGlassMotion.current
+    val tabs = listOf(
+        Triple(null, tr("Чат", "Chat"), Icons.Outlined.ChatBubbleOutline),
+        Triple("workspace", tr("Инструменты", "Tools"), Icons.Outlined.Build),
+        Triple("settings", tr("Настройки", "Settings"), Icons.Outlined.Settings),
+    )
+    val selectedIndex = tabs.indexOfFirst { it.first == selected }.coerceAtLeast(0)
+    val tabShape = RoundedCornerShape(21.dp)
     Box(
-        Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 14.dp, end = 14.dp, top = 3.dp, bottom = 8.dp),
+        Modifier.fillMaxWidth().navigationBarsPadding().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 9.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Surface(
-            modifier = Modifier.widthIn(max = 510.dp).fillMaxWidth(),
-            shape = RoundedCornerShape(24.dp),
-            color = scheme.surfaceContainerLow,
-            border = BorderStroke(1.dp, scheme.outlineVariant),
+        BoxWithConstraints(
+            Modifier.widthIn(max = 510.dp).fillMaxWidth().blackGlass(RoundedCornerShape(27.dp), prominent = true).padding(5.dp),
         ) {
-            Row(Modifier.selectableGroup().padding(4.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                for ((route, label, icon) in listOf(
-                    Triple(null, tr("Чат", "Chat"), Icons.Outlined.ChatBubbleOutline),
-                    Triple("workspace", tr("Инструменты", "Tools"), Icons.Outlined.Build),
-                    Triple("settings", tr("Настройки", "Settings"), Icons.Outlined.Settings),
-                )) {
+            val tabWidth = maxWidth / tabs.size
+            val x by animateDpAsState(
+                tabWidth * selectedIndex,
+                animationSpec = if (motion) spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium) else snap(),
+                label = "selected tab",
+            )
+            Box(Modifier.matchParentSize()) {
+                Box(Modifier.offset { IntOffset(x.roundToPx(), 0) }.width(tabWidth).fillMaxHeight().padding(horizontal = 1.dp)
+                    .background(Brush.verticalGradient(listOf(Color(0xFF50565E), Color(0xFF282C31))), tabShape)
+                    .border(1.dp, Brush.verticalGradient(listOf(Color(0x73CBD5E0), Color(0x22BBC4CF))), tabShape))
+            }
+            Row(Modifier.selectableGroup().fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
+                for ((route, label, icon) in tabs) {
                     val active = route == selected
-                    val color by animateColorAsState(
-                        if (active) scheme.surfaceContainerHighest else scheme.surfaceContainerLow, label = "tab",
-                    )
                     val ink = if (active) scheme.onSurface else scheme.onSurfaceVariant
-                    val shape = RoundedCornerShape(19.dp)
-                    Surface(color = color, shape = shape,
-                        modifier = Modifier.weight(1f).clip(shape).selectable(active, role = Role.Tab) { onSelect(route) }) {
-                        Column(Modifier.heightIn(min = 52.dp).padding(horizontal = 3.dp, vertical = 5.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically)) {
-                            Icon(icon, null, Modifier.size(18.dp), tint = ink)
-                            Text(label, style = MaterialTheme.typography.labelMedium, color = ink)
-                        }
+                    val lift by animateDpAsState(
+                        if (active) (-1).dp else 1.dp,
+                        animationSpec = if (motion) tween(190) else snap(), label = "tab icon",
+                    )
+                    Column(
+                        Modifier.weight(1f).clip(tabShape).selectable(active, role = Role.Tab) { onSelect(route) }
+                            .heightIn(min = 53.dp).padding(horizontal = 3.dp, vertical = 6.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.spacedBy(2.dp, Alignment.CenterVertically),
+                    ) {
+                        Icon(icon, null, Modifier.offset { IntOffset(0, lift.roundToPx()) }.size(19.dp), tint = ink)
+                        Text(label, style = MaterialTheme.typography.labelMedium, color = ink)
                     }
                 }
             }

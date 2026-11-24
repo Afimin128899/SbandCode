@@ -43,6 +43,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -53,6 +54,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalUriHandler
@@ -82,6 +84,7 @@ fun Page(title: String, back: () -> Unit, actions: @Composable () -> Unit = {}, 
             title = { Text(title, style = MaterialTheme.typography.titleLarge) },
             navigationIcon = { IconButton(back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, tr("Назад", "Back")) } },
             actions = { actions() },
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
         )
         content(Modifier.weight(1f).fillMaxWidth())
     }

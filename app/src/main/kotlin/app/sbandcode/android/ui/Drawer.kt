@@ -2,7 +2,6 @@ package app.sbandcode.android.ui
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.FileUpload
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -59,10 +58,10 @@ import java.util.Calendar
 
 @Composable
 fun Logo(size: Int) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerHighest,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        shape = RoundedCornerShape((size * 0.24f).dp),
-        modifier = Modifier.size(size.dp)) {
+    val shape = RoundedCornerShape((size * 0.27f).dp)
+    Surface(color = androidx.compose.ui.graphics.Color.Transparent,
+        shape = shape,
+        modifier = Modifier.size(size.dp).blackGlass(shape, prominent = true)) {
         // the drawable is the adaptive icon's 108 dp with the visible 72 in the middle
         Icon(painterResource(R.drawable.ic_launcher_foreground), null, tint = androidx.compose.ui.graphics.Color.Unspecified,
             modifier = Modifier.wrapContentSize(unbounded = true).requiredSize((size * 1.5f).dp))
@@ -102,7 +101,8 @@ fun Drawer(brain: Brain, close: () -> Unit) {
         if (uri != null) { brain.importSession(uri); close() }
     }
     ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.width(310.dp)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
+        Row(Modifier.fillMaxWidth().padding(horizontal = 15.dp, vertical = 13.dp)
+            .blackGlass(RoundedCornerShape(23.dp), prominent = true).padding(13.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Logo(42)
             Text("SbandCode", Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge,

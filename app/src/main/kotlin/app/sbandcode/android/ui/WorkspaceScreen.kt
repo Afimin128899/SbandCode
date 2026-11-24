@@ -1,6 +1,14 @@
 package app.sbandcode.android.ui
 
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.animation.core.spring
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.draw.scale
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -88,12 +96,19 @@ private fun ToolTile(
     onClick: () -> Unit,
 ) {
     val scheme = MaterialTheme.colorScheme
+    val source = remember { MutableInteractionSource() }
+    val pressed by source.collectIsPressedAsState()
+    val motion = LocalGlassMotion.current
+    val scale by animateFloatAsState(
+        if (motion && pressed) 0.975f else 1f,
+        animationSpec = if (motion) spring() else snap(), label = "tool press",
+    )
     Surface(
         onClick = onClick,
-        modifier = modifier,
-        shape = RoundedCornerShape(22.dp),
-        border = BorderStroke(1.dp, scheme.outlineVariant),
-        color = if (highlighted) scheme.surfaceContainerHigh else scheme.surfaceContainerLow,
+        modifier = modifier.scale(scale).blackGlass(RoundedCornerShape(24.dp), highlighted),
+        shape = RoundedCornerShape(24.dp),
+        color = Color.Transparent,
+        interactionSource = source,
     ) {
         Column(Modifier.heightIn(min = 123.dp).padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {

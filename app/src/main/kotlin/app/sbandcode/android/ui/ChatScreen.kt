@@ -6,6 +6,9 @@ import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
+import androidx.compose.foundation.border
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
@@ -55,10 +58,12 @@ import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.automirrored.outlined.CallSplit
 import androidx.compose.material.icons.outlined.EditNote
 import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.draw.shadow
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Close
@@ -198,8 +203,9 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
                 Surface(
                     onClick = { picker = true },
                     enabled = brain.ready,
-                    shape = RoundedCornerShape(15.dp),
-                    color = MaterialTheme.colorScheme.surfaceContainer,
+                    modifier = Modifier.blackGlass(RoundedCornerShape(18.dp)),
+                    shape = RoundedCornerShape(18.dp),
+                    color = Color.Transparent,
                 ) {
                     Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
                         verticalAlignment = Alignment.CenterVertically) {
@@ -219,16 +225,15 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
                     Icon(Icons.Outlined.EditNote, tr("Новый чат", "New chat"))
                 }
             },
-            colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
+            colors = TopAppBarDefaults.topAppBarColors(containerColor = Color.Transparent),
         )
 
         val session = brain.session()
         if (session != null && brain.ready) {
             Surface(
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 3.dp),
-                shape = RoundedCornerShape(14.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 3.dp).blackGlass(RoundedCornerShape(15.dp)),
+                shape = RoundedCornerShape(15.dp),
+                color = Color.Transparent,
             ) {
                 Row(Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -531,9 +536,8 @@ private fun UserBubble(m: Message, onEdit: () -> Unit, onFork: () -> Unit) {
         if (m.text.isNotEmpty()) Box {
             val shape = RoundedCornerShape(22.dp, 22.dp, 8.dp, 22.dp)
             Surface(
-                color = MaterialTheme.colorScheme.secondaryContainer, shape = shape,
-                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-                modifier = Modifier.widthIn(max = 320.dp).clip(shape).combinedClickable(onClick = {}, onLongClick = { menu = true }),
+                color = Color.Transparent, shape = shape,
+                modifier = Modifier.widthIn(max = 320.dp).blackGlass(shape, prominent = true).combinedClickable(onClick = {}, onLongClick = { menu = true }),
             ) {
                 Text(m.text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSecondaryContainer,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp))
@@ -552,11 +556,14 @@ private fun UserBubble(m: Message, onEdit: () -> Unit, onFork: () -> Unit) {
 
 @Composable
 private fun Dots() {
-    val t = rememberInfiniteTransition(label = "dots")
+    val transition = if (LocalGlassMotion.current) rememberInfiniteTransition(label = "dots") else null
     Row(horizontalArrangement = Arrangement.spacedBy(5.dp), modifier = Modifier.padding(vertical = 10.dp)) {
         for (i in 0 until 3) {
-            val a by t.animateFloat(0.25f, 1f, infiniteRepeatable(tween(600, delayMillis = i * 150), RepeatMode.Reverse), label = "d$i")
-            Surface(color = MaterialTheme.colorScheme.primary, shape = CircleShape, modifier = Modifier.size(8.dp).alpha(a)) {}
+            val opacity = transition?.animateFloat(
+                0.25f, 1f, infiniteRepeatable(tween(600, delayMillis = i * 150), RepeatMode.Reverse), label = "dot $i",
+            )
+            Box(Modifier.size(8.dp).alpha(opacity?.value ?: 0.65f)
+                .background(MaterialTheme.colorScheme.primary, CircleShape))
         }
     }
 }
@@ -580,9 +587,9 @@ private fun RetryCard(retry: ResponseRetry) {
         }
     }
     Surface(
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
-        shape = RoundedCornerShape(16.dp),
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp).blackGlass(RoundedCornerShape(18.dp)),
+        shape = RoundedCornerShape(18.dp),
+        color = Color.Transparent,
     ) {
         Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -702,27 +709,27 @@ private fun summary(t: Part.Tool): String {
 @Composable
 private fun ToolCard(t: Part.Tool) {
     var open by remember { mutableStateOf(false) }
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerLow, shape = RoundedCornerShape(14.dp),
-        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(14.dp)).clickable { open = !open }) {
-        Column(Modifier.padding(horizontal = 12.dp, vertical = 9.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                when (t.status) {
-                    "completed" -> Icon(Icons.Outlined.TaskAlt, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
-                    "error" -> Icon(Icons.Outlined.ErrorOutline, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
-                    else -> CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
-                }
-                Text(summary(t), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
-                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp).weight(1f))
-                Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, Modifier.size(16.dp),
-                    tint = MaterialTheme.colorScheme.onSurfaceVariant)
+    Column(
+        Modifier.fillMaxWidth().blackGlass(RoundedCornerShape(16.dp), prominent = open)
+            .clickable { open = !open }.padding(horizontal = 12.dp, vertical = 10.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            when (t.status) {
+                "completed" -> Icon(Icons.Outlined.TaskAlt, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
+                "error" -> Icon(Icons.Outlined.ErrorOutline, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.error)
+                else -> CircularProgressIndicator(Modifier.size(14.dp), strokeWidth = 2.dp)
             }
-            AnimatedVisibility(open) {
-                val body = listOfNotNull(t.input.toString(2).takeIf { t.input.length() > 0 }, t.error, t.output.ifBlank { null })
-                    .joinToString("\n\n")
-                Text(body.take(6000), fontFamily = FontFamily.Monospace, fontSize = 11.sp, lineHeight = 15.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp).horizontalScroll(rememberScrollState()))
-            }
+            Text(summary(t), style = MaterialTheme.typography.bodySmall, fontFamily = FontFamily.Monospace,
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 8.dp).weight(1f))
+            Icon(if (open) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null, Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        AnimatedVisibility(open) {
+            val body = listOfNotNull(t.input.toString(2).takeIf { t.input.length() > 0 }, t.error, t.output.ifBlank { null })
+                .joinToString("\n\n")
+            Text(body.take(6000), fontFamily = FontFamily.Monospace, fontSize = 11.sp, lineHeight = 15.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp).horizontalScroll(rememberScrollState()))
         }
     }
 }
@@ -752,21 +759,22 @@ private fun Answer(m: Message, live: Boolean, last: Boolean, hideError: Boolean,
         if (live && m.parts.isEmpty()) Dots()
         if (!hideError) m.error?.let { ErrorCard(it) }
         if (!live && (text.isNotEmpty() || last || m.done)) Row(verticalAlignment = Alignment.CenterVertically) {
-            val small = Modifier.size(36.dp)
-            val tint = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
-            if (text.isNotEmpty()) IconButton({ clipboard.setText(AnnotatedString(text)) }, small, colors = tint) {
-                Icon(Icons.Outlined.ContentCopy, tr("Копировать", "Copy"), Modifier.size(18.dp))
-            }
-            if (last) IconButton(again, small, colors = tint) {
-                Icon(Icons.Outlined.Refresh, tr("Ответить заново", "Answer again"), Modifier.size(19.dp))
-            }
-            if (m.done) IconButton(fork, small, colors = tint) {
-                Icon(Icons.AutoMirrored.Outlined.CallSplit, tr("Ветка отсюда", "Fork from here"), Modifier.size(18.dp))
+            Row(Modifier.blackGlass(RoundedCornerShape(20.dp)), verticalAlignment = Alignment.CenterVertically) {
+                val tint = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (text.isNotEmpty()) IconButton({ clipboard.setText(AnnotatedString(text)) }, colors = tint) {
+                    Icon(Icons.Outlined.ContentCopy, tr("Копировать", "Copy"), Modifier.size(18.dp))
+                }
+                if (last) IconButton(again, colors = tint) {
+                    Icon(Icons.Outlined.Refresh, tr("Ответить заново", "Answer again"), Modifier.size(19.dp))
+                }
+                if (m.done) IconButton(fork, colors = tint) {
+                    Icon(Icons.AutoMirrored.Outlined.CallSplit, tr("Ветка отсюда", "Fork from here"), Modifier.size(18.dp))
+                }
             }
             val info = listOfNotNull(m.model, if (m.tokensOut > 0) "${tokens(m.tokensIn)} → ${tokens(m.tokensOut)}" else null)
                 .joinToString(" · ")
             Text(info, style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.outline,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 6.dp))
+                maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 10.dp))
         }
     }
 }
@@ -797,12 +805,19 @@ private fun Composer(
     val displayedField = if (field.text == text) field else TextFieldValue(text, TextRange(text.length))
     SideEffect { if (field != displayedField) field = displayedField }
     var extras by remember { mutableStateOf(false) }
+    val composerShape = RoundedCornerShape(29.dp)
+    var focused by remember { mutableStateOf(false) }
+    val glow by animateFloatAsState(
+        targetValue = if (focused) 0.32f else 0f,
+        animationSpec = if (LocalGlassMotion.current) tween(220) else snap(),
+        label = "composer focus",
+    )
     Surface(
-        color = MaterialTheme.colorScheme.surfaceContainer,
-        shape = RoundedCornerShape(26.dp),
-        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-        modifier = Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(start = 14.dp, end = 14.dp, bottom = 8.dp)
-            .shadow(5.dp, RoundedCornerShape(26.dp)),
+        color = Color.Transparent,
+        shape = composerShape,
+        modifier = Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(start = 16.dp, end = 16.dp, bottom = 8.dp)
+            .shadow(8.dp, composerShape).blackGlass(composerShape, prominent = true)
+            .border(1.dp, Color(0xFFBECDE0).copy(alpha = glow), composerShape),
     ) {
         Column(Modifier.padding(6.dp)) {
             editing?.let {
@@ -833,9 +848,9 @@ private fun Composer(
                     disabledContainerColor = Color.Transparent,
                     focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent,
                 ),
-                modifier = Modifier.fillMaxWidth().focusRequester(writer),
+                modifier = Modifier.fillMaxWidth().focusRequester(writer).onFocusChanged { focused = it.isFocused },
             )
-            Row(verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.padding(horizontal = 3.dp, vertical = 2.dp), verticalAlignment = Alignment.CenterVertically) {
                 FilledIconButton(
                     onClick = { extras = true },
                     colors = IconButtonDefaults.filledIconButtonColors(
@@ -850,7 +865,13 @@ private fun Composer(
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 else Spacer(Modifier.weight(1f))
                 if (running) IconButton(stop) { Icon(Icons.Outlined.Stop, tr("Остановить", "Stop")) }
-                FilledIconButton(send, enabled = canSend && (!running || editing == null)) {
+                FilledIconButton(send, enabled = canSend && (!running || editing == null),
+                    colors = IconButtonDefaults.filledIconButtonColors(
+                        containerColor = Color(0xFFE2E8F1),
+                        contentColor = Color(0xFF121821),
+                        disabledContainerColor = Color(0xFF34383D),
+                        disabledContentColor = Color(0xFF8B939D),
+                    )) {
                     Icon(
                         Icons.AutoMirrored.Outlined.Send,
                         when {
@@ -867,20 +888,25 @@ private fun Composer(
     if (extras) ModalBottomSheet(
         onDismissRequest = { extras = false },
         sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        containerColor = MaterialTheme.colorScheme.surfaceContainer,
+        containerColor = GlassSheetColor,
+        shape = GlassSheetShape,
+        dragHandle = { GlassSheetHandle() },
     ) {
         Text(tr("Вложения и параметры", "Attachments and options"), Modifier.padding(horizontal = 22.dp, vertical = 6.dp),
             style = MaterialTheme.typography.titleLarge)
-        Column(Modifier.verticalScroll(rememberScrollState()).padding(bottom = 18.dp)) {
+        Column(Modifier.padding(start = 14.dp, end = 14.dp, top = 6.dp, bottom = 12.dp)
+            .verticalScroll(rememberScrollState()).blackGlass(RoundedCornerShape(22.dp)).padding(vertical = 6.dp)) {
             if (editing == null) {
                 ListItem(
                     headlineContent = { Text(tr("Файлы", "Files")) },
                     supportingContent = { Text(tr("Документы, код и логи", "Documents, code and logs")) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     leadingContent = { Icon(Icons.Outlined.AttachFile, null) },
                     modifier = Modifier.clickable { extras = false; openFiles() },
                 )
                 if (model?.images == true) ListItem(
                     headlineContent = { Text(tr("Фото", "Photos")) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     leadingContent = { Icon(Icons.Outlined.AddPhotoAlternate, null) },
                     modifier = Modifier.clickable {
                         extras = false
@@ -895,7 +921,8 @@ private fun Composer(
             if (model != null && brain.isLocal(model)) ListItem(
                 headlineContent = { Text(tr("Режим локальной модели", "Local model mode")) },
                 supportingContent = { Text(if (brain.prefs.localTools) tr("Агент", "Agent") else tr("Чат", "Chat")) },
-                leadingContent = { Icon(Icons.Outlined.Build, null) },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    leadingContent = { Icon(Icons.Outlined.Build, null) },
                 modifier = Modifier.clickable { brain.setLocalTools(!brain.prefs.localTools) },
             )
         }
