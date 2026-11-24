@@ -29,6 +29,7 @@ import app.sbandcode.android.data.ProjectProfile
 import app.sbandcode.android.engine.ChatNotifications
 import app.sbandcode.android.engine.Api
 import app.sbandcode.android.engine.ApiError
+import app.sbandcode.android.engine.SkillPackage
 import app.sbandcode.android.engine.LocalConnectionError
 import app.sbandcode.android.engine.ClaudeCode
 import app.sbandcode.android.engine.Engine
@@ -836,39 +837,52 @@ class Brain(app: Application) : AndroidViewModel(app) {
 
     suspend fun mcpServers(): List<JSONObject> = api.get("/api/mcp").optJSONArray("data").objects()
 
-    /** A skill from a file: a SKILL.md alone, or a zip with one (and its scripts and references). */
     suspend fun installSkill(uri: Uri, name: String) {
         withContext(Dispatchers.IO) {
-            val bytes = ctx.contentResolver.openInputStream(uri)!!.use { it.readBytes() }
-            if (name.endsWith(".zip", true) || (bytes.size > 2 && bytes[0] == 'P'.code.toByte() && bytes[1] == 'K'.code.toByte())) {
-                val entries = mutableListOf<Pair<String, ByteArray>>()
-                java.util.zip.ZipInputStream(bytes.inputStream()).use { z ->
-                    while (true) {
-                        val e = z.nextEntry ?: break
-                        if (!e.isDirectory && !e.name.contains("..")) entries += e.name to z.readBytes()
-                    }
-                }
-                val skill = entries.map { it.first }.filter { it.substringAfterLast('/') == "SKILL.md" }.minByOrNull { it.count { c -> c == '/' } }
-                    ?: error(tr("В архиве нет SKILL.md", "There's no SKILL.md in the archive"))
-                val root = skill.substringBeforeLast('/', "")
-                val folder = File(skillsDir, root.substringAfterLast('/').ifEmpty { name.substringBeforeLast('.') })
-                folder.deleteRecursively()
-                for ((path, data) in entries) {
-                    if (root.isNotEmpty() && !path.startsWith("$root/")) continue
-                    val out = File(folder, path.removePrefix(if (root.isEmpty()) "" else "$root/"))
-                    out.parentFile?.mkdirs()
-                    out.writeBytes(data)
-                }
-            } else {
-                val text = bytes.toString(Charsets.UTF_8)
-                val title = Regex("(?m)^name:\\s*[\"']?([^\"'\\n]+)").find(text)?.groupValues?.get(1)?.trim()
-                    ?: name.substringBeforeLast('.').takeIf { it != "SKILL" } ?: "skill"
-                val folder = File(skillsDir, title.lowercase().replace(Regex("[^a-z0-9._-]+"), "-"))
-                folder.mkdirs()
-                File(folder, "SKILL.md").writeText(text)
-            }
+            val input = ctx.contentResolver.openInputStream(uri) ?: error(tr("Файл недоступен.", "File unavailable."))
+            SkillPackage.install(skillsDir, input.use { SkillPackage.read(it) }, name, remote = false)
         }
         reload()
+    }
+
+    var skillStatus by mutableStateOf<String?>(null)
+        private set
+    var installingSkill by mutableStateOf(false)
+        private set
+
+    fun isSkillCommand(text: String): Boolean =
+        Regex("""(?i)^(/skill|скилл?)(?=\s|$)""").containsMatchIn(text.trim())
+
+    fun installChatSkill(command: String) {
+        if (installingSkill) return
+        val address = command.trim().split(Regex("""\s+"""), limit = 2).getOrNull(1)
+        if (address == null) {
+            skillStatus = tr("Использование: /skill <HTTPS-ссылка на SKILL.md или ZIP>", "Usage: /skill <HTTPS link to SKILL.md or ZIP>")
+            return
+        }
+        installingSkill = true
+        skillStatus = tr("Скачиваю скилл…", "Downloading skill…")
+        viewModelScope.launch {
+            try {
+                val title = withContext(Dispatchers.IO) {
+                    val (bytes, name) = SkillPackage.download(address)
+                    SkillPackage.install(skillsDir, bytes, name, remote = true)
+                }
+                api.post("/api/location/reload")
+                skillStatus = tr("Скилл «$title» установлен. Он доступен в «Инструменты → Скиллы и MCP».",
+                    "Skill '$title' installed. Find it under Tools → Skills and MCP.")
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                skillStatus = e.message ?: tr("Не удалось установить скилл.", "Could not install the skill.")
+            } finally {
+                installingSkill = false
+            }
+        }
+    }
+
+    fun dismissSkillStatus() {
+        if (!installingSkill) skillStatus = null
     }
 
     /** Only the skills that live in the app's own skills folder can be removed from here. */

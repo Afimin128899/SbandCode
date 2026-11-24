@@ -247,6 +247,19 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
             }
         }
 
+        brain.skillStatus?.let { status ->
+            Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+                Row(Modifier.padding(start = 14.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    Text(status, Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                    if (!brain.installingSkill) IconButton({ brain.dismissSkillStatus() }) {
+                        Icon(Icons.Outlined.Close, tr("Закрыть", "Dismiss"))
+                    }
+                }
+            }
+        }
+
         Composer(
             brain = brain,
             text = if (editing == null) text else editedText,
@@ -256,12 +269,25 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
             cancelEdit = { editing = null; editedText = "" },
             running = running,
             onPick = { uris -> scope.launch { for (u in uris) brain.importPicture(u)?.let { pictures += it } } },
+            onFiles = { uris ->
+                scope.launch {
+                    for (uri in uris) {
+                        val file = brain.importSharedFile(uri)
+                        if (file != null) pictures += file
+                        else brain.notice = tr("Не удалось добавить файл. Максимальный размер — 25 МБ.",
+                            "Could not attach the file. Maximum size is 25 MB.")
+                    }
+                }
+            },
             send = {
                 val e = editing
                 if (e != null) {
                     brain.resend(e, editedText)
                     editing = null
                     editedText = ""
+                } else if (brain.isSkillCommand(text)) {
+                    brain.installChatSkill(text)
+                    text = ""
                 } else {
                     brain.send(text, pictures.toList())
                     text = ""
@@ -381,10 +407,13 @@ private fun Starting(brain: Brain) {
 private fun Welcome(brain: Brain) {
     Column(Modifier.fillMaxSize().padding(horizontal = 28.dp),
         verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Logo(48)
-        Spacer(Modifier.height(16.dp))
-        Text(tr("Над чем поработаем?", "What are we working on?"),
+        Logo(56)
+        Spacer(Modifier.height(20.dp))
+        Text(tr("Что создадим?", "What shall we build?"),
             style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+        Spacer(Modifier.height(12.dp))
+        Text(tr("Напиши задачу или добавь файл через +.", "Describe a task or add a file using +."),
+            color = MaterialTheme.colorScheme.onSurfaceVariant)
         if (brain.currentModel() == null) {
             TextButton({ brain.screens.add("settings"); brain.screens.add("providers") }) {
                 Text(tr("Подключить провайдера", "Connect a provider"))
@@ -607,18 +636,23 @@ private fun Composer(
     cancelEdit: () -> Unit,
     running: Boolean,
     onPick: (List<android.net.Uri>) -> Unit,
+    onFiles: (List<android.net.Uri>) -> Unit,
     send: () -> Unit,
     stop: () -> Unit,
 ) {
     val model = brain.currentModel()
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(6)) { onPick(it) }
+    val pickFiles = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { onFiles(it) }
+    val installing = editing == null && brain.isSkillCommand(text)
     val hasAttachments = editing?.files?.isNotEmpty() ?: pictures.isNotEmpty()
-    val canSend = brain.ready && model != null && (text.isNotBlank() || hasAttachments)
+    val canSend = brain.ready && if (installing) !brain.installingSkill
+        else model != null && (text.isNotBlank() || hasAttachments)
     var extras by remember { mutableStateOf(false) }
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shape = RoundedCornerShape(18.dp),
-        modifier = Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
+        shape = RoundedCornerShape(24.dp),
+        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
     ) {
         Column(Modifier.padding(6.dp)) {
             editing?.let {
@@ -641,7 +675,7 @@ private fun Composer(
             }
             TextField(
                 value = text, onValueChange = onText,
-                placeholder = { Text(tr("Сообщение", "Message")) },
+                placeholder = { Text(tr("Написать в SbandCode", "Message SbandCode")) },
                 maxLines = 8,
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
@@ -653,6 +687,10 @@ private fun Composer(
             AnimatedVisibility(extras) {
                 Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
                     verticalAlignment = Alignment.CenterVertically) {
+                    if (editing == null) TextButton({
+                        pickFiles.launch(arrayOf("*/*"))
+                        extras = false
+                    }) { Text(tr("Файлы", "Files")) }
                     if (model?.images == true && editing == null) IconButton({
                         pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
                     }) { Icon(Icons.Outlined.AddPhotoAlternate, tr("Картинка", "Picture")) }
@@ -676,7 +714,7 @@ private fun Composer(
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
                 IconButton({ extras = !extras }) {
-                    Icon(Icons.Outlined.Add, if (extras) tr("Скрыть параметры сообщения", "Hide message options")
+                    Icon(if (extras) Icons.Outlined.Close else Icons.Outlined.Add, if (extras) tr("Скрыть параметры сообщения", "Hide message options")
                         else tr("Открыть параметры сообщения", "Open message options"))
                 }
                 Spacer(Modifier.weight(1f))
@@ -684,7 +722,11 @@ private fun Composer(
                 FilledIconButton(send, enabled = canSend && (!running || editing == null)) {
                     Icon(
                         Icons.AutoMirrored.Outlined.Send,
-                        if (running) tr("Добавить в очередь", "Queue follow-up") else tr("Отправить", "Send"),
+                        when {
+                            installing -> tr("Установить скилл", "Install skill")
+                            running -> tr("Добавить в очередь", "Queue follow-up")
+                            else -> tr("Отправить", "Send")
+                        },
                         Modifier.size(20.dp),
                     )
                 }
