@@ -63,7 +63,7 @@ import java.util.Calendar
 
 @Composable
 fun Logo(size: Int) {
-    Surface(color = androidx.compose.ui.graphics.Color(0xFF89C9F4), shape = RoundedCornerShape((size * 0.24f).dp),
+    Surface(color = androidx.compose.ui.graphics.Color(0xFF1B1B1B), shape = RoundedCornerShape((size * 0.24f).dp),
         modifier = Modifier.size(size.dp)) {
         // the drawable is the adaptive icon's 108 dp with the visible 72 in the middle
         Icon(painterResource(R.drawable.ic_launcher_foreground), null, tint = androidx.compose.ui.graphics.Color.Unspecified,
@@ -132,6 +132,19 @@ fun Drawer(brain: Brain, close: () -> Unit) {
             modifier = Modifier.padding(horizontal = 12.dp),
         )
         LazyColumn(Modifier.weight(1f).padding(horizontal = 12.dp)) {
+            item(key = "project-tools") {
+                for ((destination, label) in listOf(
+                    "search" to tr("Поиск по чатам", "Search chats"),
+                    "profiles" to tr("Профили проектов", "Project profiles"),
+                    "git" to "Git",
+                    "preview" to tr("Веб-предпросмотр", "Web preview"),
+                )) {
+                    NavigationDrawerItem(
+                        label = { Text(label) }, selected = false,
+                        onClick = { brain.screens.add(destination); close() },
+                    )
+                }
+            }
             var last = ""
             val list = brain.sessions.sortedByDescending { it.updated }
             for (chat in list) {

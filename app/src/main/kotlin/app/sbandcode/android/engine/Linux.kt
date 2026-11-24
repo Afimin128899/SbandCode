@@ -27,6 +27,7 @@ class Linux(private val context: Context, private val engine: Engine) {
         val tmp = File(context.cacheDir, "proot").apply { mkdirs() }
         return mapOf(
             "SHELL" to "$libs/liblinux.so",
+            "PATH" to "${gitBin().absolutePath}:${engine.baseEnv().getValue("PATH")}",
             "MARGY_PROOT" to "$libs/libproot.so",
             "MARGY_PROOT_LOADER" to "$libs/libprootloader.so",
             "MARGY_PROOT_TMP" to tmp.absolutePath,
@@ -34,6 +35,19 @@ class Linux(private val context: Context, private val engine: Engine) {
             "MARGY_FILES" to context.filesDir.absolutePath,
             "MARGY_CACHE" to context.cacheDir.absolutePath,
         )
+    }
+
+    // OpenCode runs git directly. The alias enters Alpine through the same native wrapper as its shell.
+    @Synchronized
+    private fun gitBin(): File {
+        val bin = File(dir, "host-bin").apply { mkdirs() }
+        val link = File(bin, "git").toPath()
+        val wrapper = File(libs, "liblinux.so").toPath()
+        if (!java.nio.file.Files.isSymbolicLink(link) || java.nio.file.Files.readSymbolicLink(link) != wrapper) {
+            java.nio.file.Files.deleteIfExists(link)
+            java.nio.file.Files.createSymbolicLink(link, wrapper)
+        }
+        return bin
     }
 
     /** Alpine has no idea of Android's DNS; it gets the phone's servers, as Claude Code does. */

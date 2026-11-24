@@ -40,7 +40,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -64,19 +64,21 @@ import app.sbandcode.android.data.MargyMe
 import app.sbandcode.android.tr
 import kotlinx.coroutines.launch
 
-/** Telegram's own blue, as the store's button has it. */
-private val TelegramBlue = Color(0xFF2AABEE)
-private val SkyBlue = Color(0xFF89C9F4)
+private val TelegramButton = Color(0xFFD0D0D0)
+private val AvatarGray = Color(0xFF5F5F5F)
 
-private fun colour(hex: String): Color = runCatching { Color(0xFF000000 or hex.trim('#').toLong(16)) }.getOrDefault(SkyBlue)
+private fun colour(hex: String): Color = runCatching { Color(0xFF000000 or hex.trim('#').toLong(16)) }.getOrDefault(AvatarGray)
 
 @Composable
-private fun Picture(brain: Brain, url: String): ImageBitmap? =
-    produceState<ImageBitmap?>(null, url) { value = brain.margy.avatar(url)?.asImageBitmap() }.value
+private fun rememberPicture(brain: Brain, url: String): ImageBitmap? {
+    var picture by remember(url) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(brain, url) { picture = brain.margy.avatar(url)?.asImageBitmap() }
+    return picture
+}
 
 @Composable
 fun Avatar(brain: Brain, me: MargyMe, size: Int) {
-    val picture = Picture(brain, me.avatar)
+    val picture = rememberPicture(brain, me.avatar)
     Box(Modifier.size(size.dp).clip(CircleShape)) {
         if (picture != null) Image(picture, null, contentScale = ContentScale.Crop, modifier = Modifier.size(size.dp))
         else Surface(color = MaterialTheme.colorScheme.primaryContainer, modifier = Modifier.size(size.dp)) {
@@ -92,7 +94,7 @@ fun Avatar(brain: Brain, me: MargyMe, size: Int) {
 @Composable
 fun BadgeIcon(brain: Brain, badge: MargyBadge, size: Dp) {
     var telling by remember { mutableStateOf(false) }
-    val picture = if (badge.image.isNotEmpty()) Picture(brain, badge.image) else null
+    val picture = if (badge.image.isNotEmpty()) rememberPicture(brain, badge.image) else null
     @Composable
     fun drawn(at: Dp, modifier: Modifier) {
         if (picture != null) Image(picture, badge.title, modifier = modifier.size(at),
@@ -145,7 +147,7 @@ fun AccountScreen(brain: Brain, back: () -> Unit) {
                     Text(tr("Войдите так же, как в магазине: через Telegram или Google. Профиль, ник и значки будут те же.",
                         "Sign in as in the store: with Telegram or Google. The profile, nick and badges are the same."),
                         color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
-                    Button({ signIn(false) }, enabled = !waiting, colors = ButtonDefaults.buttonColors(containerColor = TelegramBlue,
+                    Button({ signIn(false) }, enabled = !waiting, colors = ButtonDefaults.buttonColors(containerColor = TelegramButton,
                         contentColor = Color.White), modifier = Modifier.fillMaxWidth()) { Text(tr("Войти через Telegram", "Sign in with Telegram")) }
                     OutlinedButton({ signIn(true) }, enabled = !waiting, modifier = Modifier.fillMaxWidth()) {
                         Text(tr("Войти через Google", "Sign in with Google"))

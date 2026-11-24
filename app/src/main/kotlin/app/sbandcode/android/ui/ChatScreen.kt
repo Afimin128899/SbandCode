@@ -39,6 +39,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.selection.SelectionContainer
@@ -83,7 +84,6 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -107,6 +107,7 @@ import app.sbandcode.android.Brain
 import app.sbandcode.android.data.Message
 import app.sbandcode.android.data.Part
 import app.sbandcode.android.data.str
+import org.json.JSONObject
 import app.sbandcode.android.tr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -137,10 +138,18 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
     var editing by remember(id) { mutableStateOf<Message?>(null) }
     var editedText by remember(id) { mutableStateOf("") }
     val scope = rememberCoroutineScope()
+    val latestTurn = brain.messages.lastOrNull { it.role == "idle" }?.id
+    var changedFiles by remember(id) { mutableStateOf<List<String>>(emptyList()) }
+    LaunchedEffect(id, latestTurn, running) {
+        changedFiles = emptyList()
+        if (id != null && latestTurn != null && !running) {
+            changedFiles = runCatching { brain.changes(id).mapNotNull { it.str("file") } }.getOrDefault(emptyList())
+        }
+    }
 
     LaunchedEffect(brain.shared) {
         val s = brain.shared ?: return@LaunchedEffect
-        text = s.first
+        text = listOf(text, s.first).filter { it.isNotBlank() }.joinToString("\n")
         pictures.addAll(s.second)
         brain.shared = null
     }
@@ -167,6 +176,9 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
                 }
             },
             actions = {
+                if (id != null) IconButton({ brain.screens.add("changes") }) {
+                    Icon(Icons.Outlined.Build, tr("Правки агента", "Agent changes"))
+                }
                 IconButton({ brain.openSession(null) }, enabled = id != null) { Icon(Icons.Outlined.EditNote, tr("Новый чат", "New chat")) }
             },
             colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
@@ -179,13 +191,19 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
                 id == null || shown.isEmpty() -> Welcome(brain)
                 else -> {
                     val list = rememberLazyListState()
-                    LaunchedEffect(shown.size) { list.animateScrollToItem(0) }
+
                     val lastAnswer = shown.lastOrNull { it.role == "assistant" }?.id
                     // a failed turn ends with the error twice: on the answer and on the turn's end
                     val repeated = shown.indices.filter { i ->
                         shown[i].role == "idle" && shown[i].error != null && shown.getOrNull(i - 1)?.error != null
                     }.map { shown[it].id }.toSet()
                     val reversed = shown.filter { it.id !in repeated }.asReversed()
+                    LaunchedEffect(id, shown.size, brain.focusedMessage) {
+                        val focus = brain.focusedMessage
+                        val index = reversed.indexOfFirst { it.id == focus }
+                        val dots = if (running && shown.last().role != "assistant") 1 else 0
+                        list.scrollToItem(if (index >= 0) index + dots else 0)
+                    }
                     LazyColumn(state = list, reverseLayout = true, modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -195,9 +213,20 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
                                 "user" -> UserBubble(m, onEdit = {
                                     editing = m
                                     editedText = m.text
-                                })
-                                "assistant" -> Answer(m, live = running && !m.done,
-                                    last = !running && m.id == lastAnswer, again = { brain.again() })
+                                }, onFork = { brain.fork(m) })
+                                "assistant" -> Column {
+                                    Answer(m, live = running && !m.done,
+                                        last = !running && m.id == lastAnswer, again = { brain.again() })
+                                    if (!running && m.id == lastAnswer && changedFiles.isNotEmpty()) {
+                                        TextButton({ brain.screens.add("changes") }) {
+                                            Column(Modifier.fillMaxWidth()) {
+                                                Text(tr("Изменено файлов: ${changedFiles.size}", "Files changed: ${changedFiles.size}"))
+                                                changedFiles.take(3).forEach { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                                            }
+                                        }
+                                    }
+                                    if (m.done) TextButton({ brain.fork(m) }) { Text(tr("Ветка отсюда", "Fork from here")) }
+                                }
                                 "idle" -> if (m.error != null) ErrorCard(m.error) else if (m.outcome == "interrupted")
                                     Text(tr("Остановлено", "Stopped"), style = MaterialTheme.typography.labelMedium,
                                         color = MaterialTheme.colorScheme.outline)
@@ -292,10 +321,12 @@ private fun FollowUpQueue(brain: Brain, id: String, dismiss: () -> Unit) {
                             } else if (item.text.isNotBlank()) {
                                 Text(item.text)
                             }
+                            val sending = brain.sendingFollowUp(id, item.key)
+                            if (sending) Text(tr("Отправляется…", "Sending…"), style = MaterialTheme.typography.labelMedium)
                             if (item.pictures.isNotEmpty()) {
                                 val count = item.pictures.size
                                 Text(
-                                    tr("Изображений: $count", "Images: $count"),
+                                    tr("Вложений: $count", "Attachments: $count"),
                                     style = MaterialTheme.typography.labelMedium,
                                 )
                             }
@@ -306,17 +337,17 @@ private fun FollowUpQueue(brain: Brain, id: String, dismiss: () -> Unit) {
                                             brain.editFollowUp(id, item.key, draft)
                                             editingKey = null
                                         },
-                                        enabled = draft.isNotBlank() || item.pictures.isNotEmpty(),
+                                        enabled = !sending && (draft.isNotBlank() || item.pictures.isNotEmpty()),
                                     ) { Text(tr("Сохранить", "Save")) }
                                     TextButton({ editingKey = null }) { Text(tr("Отмена", "Cancel")) }
                                 } else {
-                                    TextButton({ draft = item.text; editingKey = item.key }) {
+                                    TextButton({ draft = item.text; editingKey = item.key }, enabled = !sending) {
                                         Text(tr("Править", "Edit"))
                                     }
-                                    TextButton({ brain.moveFollowUpUp(id, item.key) }, enabled = index > 0) {
+                                    TextButton({ brain.moveFollowUpUp(id, item.key) }, enabled = !sending && index > 0 && !brain.sendingFollowUp(id, pending[index - 1].key)) {
                                         Text(tr("Выше", "Up"))
                                     }
-                                    TextButton({ brain.removeFollowUp(id, item.key) }) {
+                                    TextButton({ brain.removeFollowUp(id, item.key) }, enabled = !sending) {
                                         Text(tr("Удалить", "Remove"))
                                     }
                                 }
@@ -372,8 +403,9 @@ private fun Welcome(brain: Brain) {
 
 @Composable
 fun Thumb(path: String, size: Int, modifier: Modifier = Modifier) {
-    val bitmap by produceState<ImageBitmap?>(null, path) {
-        value = withContext(Dispatchers.IO) {
+    var bitmap by remember(path, size) { mutableStateOf<ImageBitmap?>(null) }
+    LaunchedEffect(path, size) {
+        bitmap = withContext(Dispatchers.IO) {
             runCatching {
                 val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
                 BitmapFactory.decodeFile(path, bounds)
@@ -389,15 +421,27 @@ fun Thumb(path: String, size: Int, modifier: Modifier = Modifier) {
     }
 }
 
+@Composable
+private fun Attachment(path: String, size: Int) {
+    if (path.substringAfterLast('.').lowercase() in setOf("jpg", "jpeg", "png", "webp", "gif")) Thumb(path, size)
+    else Surface(shape = RoundedCornerShape(12.dp), color = MaterialTheme.colorScheme.surfaceContainerHighest) {
+        Text(java.io.File(path).name, modifier = Modifier.widthIn(max = 140.dp).padding(12.dp), maxLines = 2,
+            overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelMedium)
+    }
+}
+
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun UserBubble(m: Message, onEdit: () -> Unit) {
+private fun UserBubble(m: Message, onEdit: () -> Unit, onFork: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     var menu by remember { mutableStateOf(false) }
     val pictures = m.files
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
         if (pictures.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
-            for (p in pictures) Thumb(p, 120)
+            for (p in pictures) Attachment(p, 120)
+        }
+        if (m.text.isEmpty() && pictures.isNotEmpty()) {
+            TextButton(onFork) { Text(tr("Ветка отсюда", "Fork from here")) }
         }
         if (m.text.isNotEmpty()) Box {
             val shape = RoundedCornerShape(22.dp, 22.dp, 6.dp, 22.dp)
@@ -411,6 +455,8 @@ private fun UserBubble(m: Message, onEdit: () -> Unit) {
             DropdownMenu(menu, { menu = false }) {
                 DropdownMenuItem(text = { Text(tr("Копировать", "Copy")) }, leadingIcon = { Icon(Icons.Outlined.ContentCopy, null) },
                     onClick = { clipboard.setText(AnnotatedString(m.text)); menu = false })
+                DropdownMenuItem(text = { Text(tr("Ветка отсюда", "Fork from here")) },
+                    onClick = { menu = false; onFork() })
                 DropdownMenuItem(text = { Text(tr("Изменить", "Edit")) }, leadingIcon = { Icon(Icons.Outlined.Edit, null) },
                     onClick = { menu = false; onEdit() })
             }
@@ -593,7 +639,7 @@ private fun Composer(
             if (editing == null && pictures.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (p in pictures.toList()) Box {
-                    Thumb(p, 64)
+                    Attachment(p, 64)
                     Surface(color = Color.Black.copy(alpha = 0.55f), shape = CircleShape,
                         modifier = Modifier.align(Alignment.TopEnd).padding(3.dp).size(20.dp).clip(CircleShape).clickable { pictures.remove(p) }) {
                         Icon(Icons.Outlined.Close, null, tint = Color.White, modifier = Modifier.padding(3.dp))
@@ -693,22 +739,27 @@ private fun ThinkingChip(brain: Brain, enabled: Boolean) {
 private fun Asks(brain: Brain) {
     val ask = brain.asks.firstOrNull { it.session == brain.open }
     if (ask != null) {
+        var input by remember(ask.id) { mutableStateOf<JSONObject?>(null) }
+        LaunchedEffect(ask.id) { input = runCatching { brain.permissionInput(ask) }.getOrNull() }
+        val directory = ask.directory ?: input?.str("workdir") ?: input?.str("cwd") ?: brain.session(ask.session)?.directory
+        val command = ask.command ?: input?.str("command")
         AlertDialog(
             onDismissRequest = {},
             icon = { Icon(Icons.Outlined.Build, null) },
             title = { Text(tr("Разрешить: ${ask.action}?", "Allow ${ask.action}?")) },
             text = {
-                Column {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
                     ask.message?.let { Text(it) }
-                    for (r in ask.resources.take(6)) Text(r, fontFamily = FontFamily.Monospace, fontSize = 12.sp,
+                    directory?.let {
+                        Text(tr("Рабочая папка: $it", "Working directory: $it"))
+                    }
+                    command?.let { Text(it, fontFamily = FontFamily.Monospace) }
+                    for (r in ask.resources) Text(r, fontFamily = FontFamily.Monospace, fontSize = 12.sp,
                         modifier = Modifier.padding(top = 6.dp))
                 }
             },
             confirmButton = {
-                Row {
-                    TextButton({ brain.reply(ask, "always") }) { Text(tr("Всегда", "Always")) }
-                    TextButton({ brain.reply(ask, "once") }) { Text(tr("Разрешить", "Allow")) }
-                }
+                TextButton({ brain.reply(ask, "once") }) { Text(tr("Разрешить один раз", "Allow once")) }
             },
             dismissButton = { TextButton({ brain.reply(ask, "reject") }) { Text(tr("Запретить", "Deny")) } },
         )

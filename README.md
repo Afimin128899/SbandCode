@@ -5,13 +5,14 @@
 **An AI client for Android with the real opencode inside.**
 The models, providers and agent of [opencode](https://opencode.ai), in an app made for a phone.
 
-[![licence](https://img.shields.io/badge/licence-MIT-89C9F4?style=flat-square)](#licence)
+[![licence](https://img.shields.io/badge/licence-MIT-444444?style=flat-square)](#licence)
 
 </div>
 
 ---
 
-SbandCode is based on [MargyCode by Narezany](https://git.narez.xyz/narezany/MargyCode).
+SbandCode is maintained by [Afimin128899](https://github.com/Afimin128899).
+It is based on [MargyCode by Narezany](https://git.narez.xyz/narezany/MargyCode).
 It starts `opencode serve`
 on the phone and talks to it over its HTTP API, the same way opencode's desktop
 app does. So what works in opencode on a computer works here, and the screens
@@ -22,9 +23,12 @@ you turn on chat sync yourself.
 
 ## What it does
 
-While a reply is running, you can queue follow-up messages for the same chat.
-They are sent in order once the current turn ends. The composer shows the queue
-count and lets you clear pending messages.
+- Review the files changed in the latest agent turn, copy a patch, or reverse a Git patch when the edited file still matches.
+- Search chat titles and messages by project, fork a chat at a message, and share text or a file from Android to a new or current chat.
+- Save the model, agent mode, and command and file approval rules for each project folder. Permission prompts show the command and working directory whenever OpenCode provides them.
+- Queue follow-ups during a reply. The queue survives an app restart and can be resumed in the chat. Enable chat notifications in Settings for completed turns and permission requests while in the background.
+- Open Git from the menu for status, history, local branches and commits from selected files. Install Alpine and its `git` package first. Web preview opens a local server at a loopback URL with an explicit port.
+- Check required and free space before downloading a local model, and pause, resume or delete downloads in the model screen.
 
 <details>
 <summary><b>Every model opencode knows</b></summary>
