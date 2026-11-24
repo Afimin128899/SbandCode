@@ -10,7 +10,12 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.material.icons.outlined.Description
+import androidx.compose.material.icons.outlined.Folder
+import androidx.compose.material.icons.automirrored.outlined.FormatListBulleted
+import androidx.compose.material.icons.outlined.WifiOff
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -118,11 +123,13 @@ import androidx.compose.ui.unit.sp
 import app.sbandcode.android.Brain
 import app.sbandcode.android.data.Message
 import app.sbandcode.android.data.Part
+import app.sbandcode.android.data.ResponseRetry
 import app.sbandcode.android.data.str
 import org.json.JSONObject
 import app.sbandcode.android.tr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 
 fun thinkingLabel(v: String) = when (v) {
@@ -143,6 +150,7 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
     val id = brain.open
     val model = brain.currentModel()
     val running = id != null && brain.isRunning(id)
+    val retry = brain.retryProgress(id).takeIf { running }
     var picker by remember { mutableStateOf(false) }
     var showQueue by remember(id) { mutableStateOf(false) }
     var text by rememberSaveable(id) { mutableStateOf("") }
@@ -214,6 +222,27 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
         )
 
+        val session = brain.session()
+        if (session != null && brain.ready) {
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 3.dp),
+                shape = RoundedCornerShape(14.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+            ) {
+                Row(Modifier.padding(horizontal = 11.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Icon(Icons.Outlined.Folder, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
+                    Text(session.title.ifBlank { tr("Диалог", "Conversation") },
+                        Modifier.weight(1f), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        style = MaterialTheme.typography.labelLarge)
+                    Text(brain.folderLabel(session.directory), Modifier.widthIn(max = 116.dp), maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.labelSmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+        }
+
         Box(Modifier.weight(1f).fillMaxWidth()) {
             val shown = brain.shown()
             when {
@@ -229,22 +258,28 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
                 else -> {
                     val list = rememberLazyListState()
 
-                    val lastAnswer = shown.lastOrNull { it.role == "assistant" }?.id
-                    // a failed turn ends with the error twice: on the answer and on the turn's end
+                    val latestAssistant = shown.lastOrNull { it.role == "assistant" }
+                    val lastAnswer = latestAssistant?.id
+                    val end = shown.lastOrNull()?.takeIf { it.role == "idle" && it.outcome == "failed" }
+                    val recoveredError = end != null && (end.connectionInterrupted ||
+                        (end.error == null && latestAssistant?.connectionInterrupted == true))
+                    val showDots = running && retry == null && shown.last().role != "assistant"
+                    // A failed turn can carry the same error on the assistant and the terminal event.
                     val repeated = shown.indices.filter { i ->
-                        shown[i].role == "idle" && shown[i].error != null && shown.getOrNull(i - 1)?.error != null
+                        shown[i].role == "idle" && shown[i].error != null && shown.getOrNull(i - 1)?.error == shown[i].error &&
+                            !(recoveredError && shown[i].id == end?.id)
                     }.map { shown[it].id }.toSet()
                     val reversed = shown.filter { it.id !in repeated }.asReversed()
-                    LaunchedEffect(id, shown.size, brain.focusedMessage) {
+                    LaunchedEffect(id, shown.size, showDots, brain.focusedMessage) {
                         val focus = brain.focusedMessage
                         val index = reversed.indexOfFirst { it.id == focus }
-                        val dots = if (running && shown.last().role != "assistant") 1 else 0
+                        val dots = if (showDots) 1 else 0
                         list.scrollToItem(if (index >= 0) index + dots else 0)
                     }
                     LazyColumn(state = list, reverseLayout = true, modifier = Modifier.fillMaxSize(),
                         contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
                         verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                        if (running && shown.last().role != "assistant") item(key = "dots") { Dots() }
+                        if (showDots) item(key = "dots") { Dots() }
                         items(reversed, key = { it.id }) { m ->
                             when (m.role) {
                                 "user" -> UserBubble(m, onEdit = {
@@ -252,20 +287,24 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
                                     editedText = m.text
                                 }, onFork = { brain.fork(m) })
                                 "assistant" -> Column {
+                                    val recoveryHere = recoveredError && m.id == lastAnswer
                                     Answer(m, live = running && !m.done,
-                                        last = !running && m.id == lastAnswer, again = { brain.again() }, fork = { brain.fork(m) })
+                                        last = !running && m.id == lastAnswer && !recoveredError,
+                                        hideError = m.connectionInterrupted && (running || recoveryHere || m.id != lastAnswer),
+                                        again = { brain.again() }, fork = { brain.fork(m) })
                                     if (!running && m.id == lastAnswer && changedFiles.isNotEmpty()) {
-                                        TextButton({ brain.screens.add("changes") }) {
-                                            Column(Modifier.fillMaxWidth()) {
-                                                Text(tr("Изменено файлов: ${changedFiles.size}", "Files changed: ${changedFiles.size}"))
-                                                changedFiles.take(3).forEach { Text(it, maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                                            }
-                                        }
+                                        ChangedFiles(changedFiles) { brain.screens.add("changes") }
                                     }
                                 }
-                                "idle" -> if (m.error != null) ErrorCard(m.error) else if (m.outcome == "interrupted")
-                                    Text(tr("Остановлено", "Stopped"), style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.outline)
+                                "idle" -> when {
+                                    recoveredError && m.id == end?.id -> ConnectionCard(
+                                        m.error ?: latestAssistant?.error,
+                                        if (running) null else { { brain.continueResponse() } },
+                                    )
+                                    m.error != null -> ErrorCard(m.error)
+                                    m.outcome == "interrupted" -> Text(tr("Остановлено", "Stopped"),
+                                        style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.outline)
+                                }
                             }
                         }
                     }
@@ -273,19 +312,26 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
             }
         }
 
+        retry?.let { RetryCard(it) }
+
         val queued = brain.followUpCount(id)
         if (id != null && queued > 0) {
-            Row(
-                Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Surface(
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
             ) {
-                TextButton({ showQueue = true }, Modifier.weight(1f)) {
-                    Text(tr("Дополнений в очереди: $queued", "Follow-ups queued: $queued"))
+                Row(Modifier.padding(horizontal = 5.dp), verticalAlignment = Alignment.CenterVertically) {
+                    val paused = brain.canRetryFollowUps(id)
+                    TextButton({ showQueue = true }, Modifier.weight(1f)) {
+                        Icon(Icons.AutoMirrored.Outlined.FormatListBulleted, null, Modifier.size(16.dp))
+                        Text(if (paused) tr("На паузе · $queued", "Paused · $queued") else tr("В очереди · $queued", "Queued · $queued"),
+                            Modifier.padding(start = 6.dp))
+                    }
+                    if (paused) TextButton({ brain.retryFollowUps(id) }) { Text(tr("Отправить", "Send")) }
+                    IconButton({ brain.clearFollowUps(id) }) { Icon(Icons.Outlined.Close, tr("Очистить очередь", "Clear queue")) }
                 }
-                if (brain.canRetryFollowUps(id)) {
-                    TextButton({ brain.retryFollowUps(id) }) { Text(tr("Повторить", "Retry")) }
-                }
-                TextButton({ brain.clearFollowUps(id) }) { Text(tr("Очистить", "Clear")) }
             }
         }
 
@@ -473,7 +519,10 @@ private fun UserBubble(m: Message, onEdit: () -> Unit, onFork: () -> Unit) {
     var menu by remember { mutableStateOf(false) }
     val pictures = m.files
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.End) {
-        if (pictures.isNotEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+        if (pictures.isNotEmpty()) Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier.padding(bottom = 6.dp).horizontalScroll(rememberScrollState()),
+        ) {
             for (p in pictures) Attachment(p, 120)
         }
         if (m.text.isEmpty() && pictures.isNotEmpty()) {
@@ -483,6 +532,7 @@ private fun UserBubble(m: Message, onEdit: () -> Unit, onFork: () -> Unit) {
             val shape = RoundedCornerShape(22.dp, 22.dp, 8.dp, 22.dp)
             Surface(
                 color = MaterialTheme.colorScheme.secondaryContainer, shape = shape,
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
                 modifier = Modifier.widthIn(max = 320.dp).clip(shape).combinedClickable(onClick = {}, onLongClick = { menu = true }),
             ) {
                 Text(m.text, style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSecondaryContainer,
@@ -518,6 +568,83 @@ private fun tokens(n: Long) = when {
     n >= 10_000 -> "${n / 1000}k"
     n >= 1000 -> "%.1fk".format(n / 1e3)
     else -> n.toString()
+}
+
+@Composable
+private fun RetryCard(retry: ResponseRetry) {
+    var remaining by remember(retry) { mutableStateOf((retry.at - System.currentTimeMillis()).coerceAtLeast(0L)) }
+    LaunchedEffect(retry) {
+        while (remaining > 0L) {
+            delay(1_000)
+            remaining = (retry.at - System.currentTimeMillis()).coerceAtLeast(0L)
+        }
+    }
+    Surface(
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+    ) {
+        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+            Column {
+                Text(tr("Восстанавливаю ответ", "Reconnecting"), style = MaterialTheme.typography.titleSmall)
+                val seconds = (remaining + 999) / 1_000
+                Text(if (seconds > 0) tr("Попытка ${retry.attempt} через $seconds с", "Attempt ${retry.attempt} in ${seconds}s")
+                    else tr("Попытка ${retry.attempt}…", "Attempt ${retry.attempt}…"),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
+}
+
+@Composable
+private fun ConnectionCard(error: String?, continueAnswer: (() -> Unit)?) {
+    var details by remember(error) { mutableStateOf(false) }
+    Surface(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(20.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHigh,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+                Icon(Icons.Outlined.WifiOff, null, Modifier.size(19.dp))
+                Text(tr("Ответ прервался", "Response interrupted"), style = MaterialTheme.typography.titleMedium)
+            }
+            Text(tr("Соединение с провайдером оборвалось. Можно продолжить в этом чате.",
+                "The provider connection closed. You can continue in this chat."),
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            if (continueAnswer != null) Button(continueAnswer) { Text(tr("Продолжить ответ", "Continue response")) }
+            if (error != null) {
+                TextButton({ details = !details }) { Text(tr("Технические детали", "Technical details")) }
+                AnimatedVisibility(details) {
+                    SelectionContainer { Text(error, style = MaterialTheme.typography.bodySmall) }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ChangedFiles(files: List<String>, onClick: () -> Unit) {
+    Surface(
+        onClick = onClick,
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+    ) {
+        Row(Modifier.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(9.dp)) {
+            Icon(Icons.Outlined.Description, null, Modifier.size(19.dp))
+            Column(Modifier.weight(1f)) {
+                Text(tr("Изменено файлов: ${files.size}", "Files changed: ${files.size}"), style = MaterialTheme.typography.titleSmall)
+                Text(files.take(3).joinToString(" · ") { it.substringAfterLast('/') },
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        }
+    }
 }
 
 @Composable
@@ -601,7 +728,7 @@ private fun ToolCard(t: Part.Tool) {
 }
 
 @Composable
-private fun Answer(m: Message, live: Boolean, last: Boolean, again: () -> Unit, fork: () -> Unit) {
+private fun Answer(m: Message, live: Boolean, last: Boolean, hideError: Boolean, again: () -> Unit, fork: () -> Unit) {
     val clipboard = LocalClipboardManager.current
     val text = m.parts.filterIsInstance<Part.Text>().joinToString("\n\n") { it.text }.trim()
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -623,7 +750,7 @@ private fun Answer(m: Message, live: Boolean, last: Boolean, again: () -> Unit, 
             }
         }
         if (live && m.parts.isEmpty()) Dots()
-        m.error?.let { ErrorCard(it) }
+        if (!hideError) m.error?.let { ErrorCard(it) }
         if (!live && (text.isNotEmpty() || last || m.done)) Row(verticalAlignment = Alignment.CenterVertically) {
             val small = Modifier.size(36.dp)
             val tint = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
