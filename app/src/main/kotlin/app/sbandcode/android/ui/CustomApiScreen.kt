@@ -89,11 +89,14 @@ fun CustomApiScreen(brain: Brain, back: () -> Unit) {
                 perform {
                     val found = profile.listModels()
                     if (found.isEmpty()) message = tr("Сервер не вернул модели. Введите ID вручную.", "The server returned no models. Enter IDs manually.")
-                    else ids = (ids.lineSequence().map(String::trim).filter(String::isNotEmpty).toList() + found)
-                        .distinct().joinToString("\n")
+                    else {
+                        ids = (ids.lines().map(String::trim).filter(String::isNotBlank) + found).distinct().joinToString("\n")
+                        message = tr("Сервер ответил. Найдено моделей: ${found.size}.",
+                            "The server responded. Models found: ${found.size}.")
+                    }
                 }
             }, enabled = edit && profile.address.isNotBlank()) {
-                Text(tr("Загрузить модели с сервера", "Load models from server"))
+                Text(tr("Проверить API и загрузить модели", "Check API and load models"))
             }
             Button({
                 perform {

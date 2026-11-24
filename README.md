@@ -107,7 +107,7 @@ you sign in with an OpenCode account, not with a key alone.
 <details>
 <summary><b>Chats: export and import</b></summary>
 
-Any chat can be saved to a file in opencode's own transfer format and loaded back.
+Any chat can be saved to a file in opencode's own transfer format and loaded back. Use **Settings → Data** to back up and restore all chats in one file. Restoration skips existing chat IDs.
 
 </details>
 
