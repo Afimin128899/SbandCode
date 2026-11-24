@@ -21,7 +21,7 @@ Android 9 and up, arm64 only. No root. Provider credentials and chat history are
 
 ## What it does
 
-Open the folder in the chat header to find chats and expandable tool groups. The folder beside the composer holds attachments, model options, and the working directory.
+Use the Chat, Tools, and Settings tabs to switch between your conversation, project tools, and app preferences. The chat header opens history or the model picker. The plus button in the composer opens attachments, model options, and the working directory.
 
 - Review the files changed in the latest agent turn, copy a patch, or reverse a Git patch when the edited file still matches.
 - Search chat titles and messages by project, fork a chat at a message, and share text or a file from Android to a new or current chat.
