@@ -1,6 +1,12 @@
 package app.sbandcode.android.ui
 
+import android.Manifest
+import android.content.Intent
 import android.os.Build
+import android.provider.Settings
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -17,8 +23,6 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.RadioButton
-import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -47,26 +51,22 @@ fun SettingsScreen(brain: Brain, back: () -> Unit) {
     LaunchedEffect(Unit) { rules = withContext(Dispatchers.IO) { brain.rulesFile.takeIf { it.exists() }?.readText().orEmpty() } }
     var wipe by remember { mutableStateOf(false) }
     val uri = LocalUriHandler.current
+    val context = LocalContext.current
+    val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    val openNotifications = {
+        context.startActivity(Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS)
+            .putExtra(Settings.EXTRA_APP_PACKAGE, context.packageName))
+    }
     Page(tr("Настройки", "Settings"), back) { mod ->
         Column(mod.verticalScroll(rememberScrollState()).navigationBarsPadding().imePadding()) {
-            Section(tr("Оформление", "Look"))
-            for ((v, label) in listOf("system" to tr("Как в системе", "As the system"), "light" to tr("Светлая", "Light"), "dark" to tr("Тёмная", "Dark"))) {
-                Row(Modifier.fillMaxWidth().clickable { brain.update { it.copy(theme = v) } }.padding(horizontal = 12.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    RadioButton(brain.prefs.theme == v, { brain.update { it.copy(theme = v) } })
-                    Text(label)
-                }
-            }
-            if (Build.VERSION.SDK_INT >= 31) Row(
-                Modifier.fillMaxWidth().clickable { brain.update { it.copy(dynamic = !it.dynamic) } }.padding(horizontal = 24.dp, vertical = 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Column(Modifier.weight(1f)) {
-                    Text(tr("Цвета обоев", "Wallpaper colours"))
-                    Text(tr("Вместо мятного", "Instead of the mint"), style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                }
-                Switch(brain.prefs.dynamic, { v -> brain.update { it.copy(dynamic = v) } })
+            Section(tr("Уведомления", "Notifications"))
+            TextButton({
+                if (Build.VERSION.SDK_INT >= 33 &&
+                    context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                    notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+                } else openNotifications()
+            }, Modifier.padding(start = 12.dp)) {
+                Text(tr("Уведомления о завершении и разрешениях", "Completion and permission notifications"))
             }
 
             Section(tr("Правила для модели", "Rules for the model"))
@@ -119,16 +119,16 @@ fun SettingsScreen(brain: Brain, back: () -> Unit) {
                     Logo(44)
                     Column(Modifier.padding(start = 14.dp)) {
                         Text("SbandCode ${BuildConfig.VERSION_NAME}", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-                        Text("Narezany", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Text("Afimin128899", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
                 Text(tr("Внутри работает настоящий opencode 2.2.5 (MIT), собранный под Android на официальном Bun. Ключи и чаты хранятся только на телефоне.",
                     "Inside runs real opencode 2.2.5 (MIT), built for Android on the official Bun. Keys and chats stay on the phone."),
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                Text(tr("Сделано с Claude Opus 5.5", "Made with Claude Opus 5.5"), style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.outline)
+                Text(tr("На основе MargyCode от Narezany · лицензия MIT", "Based on MargyCode by Narezany · MIT license"),
+                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                    TextButton({ uri.openUri("https://narez.xyz") }) { Text("narez.xyz") }
+                    TextButton({ uri.openUri("https://github.com/Afimin128899/SbandCode") }) { Text("GitHub") }
                     TextButton({ uri.openUri("https://opencode.ai") }) { Text("opencode.ai") }
                     TextButton({ uri.openUri("https://models.dev") }) { Text("models.dev") }
                 }

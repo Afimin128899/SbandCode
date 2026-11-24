@@ -3,9 +3,14 @@ package app.sbandcode.android.engine
 import android.app.ActivityManager
 import android.content.Context
 import app.sbandcode.android.data.jsonOf
+import app.sbandcode.android.data.strings
 import app.sbandcode.android.tr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlin.coroutines.coroutineContext
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
@@ -14,6 +19,7 @@ import java.io.RandomAccessFile
 import java.net.HttpURLConnection
 import java.net.ServerSocket
 import java.net.URL
+import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Models that run on the phone itself: GGUF files from Hugging Face, served by llama.cpp's
@@ -28,6 +34,7 @@ class Local(private val context: Context) {
     private val dir get() = File(context.filesDir, "models")
     private val libs get() = context.applicationInfo.nativeLibraryDir
     private var process: Process? = null
+    private val downloadLocks = ConcurrentHashMap<String, Mutex>()
     var port = 0
         private set
     val log get() = File(context.filesDir, "llama.log")
@@ -41,8 +48,34 @@ class Local(private val context: Context) {
 
     fun size(id: String) = File(dir, id).listFiles().orEmpty().filter { it.name.endsWith(".gguf") }.sumOf { it.length() }
 
-    fun remove(id: String) {
-        File(dir, id).deleteRecursively()
+    suspend fun remove(id: String) = withContext(Dispatchers.IO) {
+        downloadLocks.getOrPut(id) { Mutex() }.withLock {
+            check(File(dir, id).deleteRecursively()) { tr("Не удалось удалить модель", "Could not delete the model") }
+        }
+    }
+
+    fun freeBytes() = context.filesDir.usableSpace
+
+    fun transfers(): Map<String, List<String>> = dir.listFiles().orEmpty().mapNotNull { folder ->
+        val urls = runCatching { JSONArray(File(folder, "download.json").readText()).strings() }.getOrNull()
+        urls?.takeIf { it.isNotEmpty() }?.let { folder.name to it }
+    }.toMap()
+
+    private fun fileName(url: String): String = URL(url).path.substringAfterLast('/').also {
+        require(it.endsWith(".gguf") && it.matches(Regex("[a-zA-Z0-9._%-]+"))) { "Invalid GGUF filename" }
+    }
+
+    data class DownloadSize(val total: Long, val remaining: Long)
+
+    suspend fun downloadSize(id: String, urls: List<String>): DownloadSize = withContext(Dispatchers.IO) {
+        val folder = File(dir, id)
+        val sizes = urls.map(::head)
+        val remaining = urls.zip(sizes).sumOf { (url, size) ->
+            val name = fileName(url)
+            val present = File(folder, name).length()
+            if (present == size) 0 else size - File(folder, "$name.part").length().coerceIn(0, size)
+        }
+        DownloadSize(sizes.sum(), remaining)
     }
 
     /** How much memory the phone has, to say which models fit. */
@@ -57,57 +90,83 @@ class Local(private val context: Context) {
      * broken download stopped. [progress] gets bytes done and the total of everything.
      */
     suspend fun download(id: String, urls: List<String>, progress: (Long, Long) -> Unit) = withContext(Dispatchers.IO) {
-        val folder = File(dir, id).apply { mkdirs() }
-        val sizes = urls.map { head(it) }
-        val total = sizes.sum()
-        var before = 0L
-        for ((i, url) in urls.withIndex()) {
-            val name = url.substringAfterLast('/').substringBefore('?')
-            val target = File(folder, name)
-            if (target.exists() && target.length() == sizes[i]) { before += sizes[i]; continue }
-            val part = File(folder, "$name.part")
-            var have = if (part.exists()) part.length() else 0L
-            val c = URL(url).openConnection() as HttpURLConnection
-            c.connectTimeout = 20_000
-            c.readTimeout = 60_000
-            c.instanceFollowRedirects = true
-            c.setRequestProperty("User-Agent", "SbandCode")
-            if (have > 0) c.setRequestProperty("Range", "bytes=$have-")
-            try {
-                val code = c.responseCode
-                if (code == 200) have = 0 else if (code != 206) error("Hugging Face: HTTP $code")
-                RandomAccessFile(part, "rw").use { out ->
-                    out.seek(have)
-                    out.setLength(have)
-                    val buf = ByteArray(1 shl 16)
-                    c.inputStream.use { input ->
-                        while (true) {
-                            val n = input.read(buf)
-                            if (n < 0) break
-                            out.write(buf, 0, n)
-                            have += n
-                            progress(before + have, total)
+        require(id.matches(Regex("[a-z0-9._-]+")) && id.any(Char::isLetterOrDigit))
+        downloadLocks.getOrPut(id) { Mutex() }.withLock {
+            val folder = File(dir, id).apply { mkdirs() }
+            val transfer = File(folder, "download.json")
+            val manifest = File(folder, "download.json.tmp")
+            manifest.writeText(JSONArray(urls).toString())
+            check(manifest.renameTo(transfer))
+            val sizes = urls.map(::head)
+            val total = sizes.sum()
+            var before = 0L
+            for ((i, url) in urls.withIndex()) {
+                coroutineContext.ensureActive()
+                val name = fileName(url)
+                val target = File(folder, name)
+                if (target.exists() && target.length() == sizes[i]) { before += sizes[i]; continue }
+                val part = File(folder, "$name.part")
+                if (part.exists() && part.length() == sizes[i]) {
+                    check(part.renameTo(target))
+                    before += sizes[i]
+                    continue
+                }
+                var have = part.length().takeIf { it < sizes[i] } ?: 0L
+                val c = URL(url).openConnection() as HttpURLConnection
+                c.connectTimeout = 20_000
+                c.readTimeout = 15_000
+                c.instanceFollowRedirects = true
+                c.setRequestProperty("User-Agent", "SbandCode")
+                c.setRequestProperty("Accept-Encoding", "identity")
+                if (have > 0) c.setRequestProperty("Range", "bytes=$have-")
+                try {
+                    val code = c.responseCode
+                    if (code == 200) have = 0
+                    else if (code != 206 || !c.getHeaderField("Content-Range").orEmpty().startsWith("bytes $have-")) {
+                        error("Hugging Face: HTTP $code / invalid range")
+                    }
+                    check(sizes[i] - have <= freeBytes()) { tr("Недостаточно места для модели", "Not enough space for this model") }
+                    RandomAccessFile(part, "rw").use { out ->
+                        out.seek(have)
+                        out.setLength(have)
+                        val buf = ByteArray(1 shl 16)
+                        c.inputStream.use { input ->
+                            while (true) {
+                                coroutineContext.ensureActive()
+                                val n = input.read(buf)
+                                if (n < 0) break
+                                check(have + n <= sizes[i]) { "Hugging Face: unexpected file size" }
+                                out.write(buf, 0, n)
+                                have += n
+                                progress(before + have, total)
+                            }
                         }
                     }
+                } finally {
+                    c.disconnect()
                 }
-            } finally {
-                c.disconnect()
+                if (part.length() != sizes[i] && sizes[i] > 0) error("Hugging Face: the file came short")
+                check(part.renameTo(target))
+                before += sizes[i]
             }
-            if (part.length() != sizes[i] && sizes[i] > 0) error("Hugging Face: the file came short")
-            part.renameTo(target)
-            before += sizes[i]
+            transfer.delete()
+            Unit
         }
     }
 
     private fun head(url: String): Long {
-        val c = URL(url).openConnection() as HttpURLConnection
+        val target = URL(url)
+        require(target.protocol == "https" && target.host == "huggingface.co" && target.userInfo == null)
+        fileName(url)
+        val c = target.openConnection() as HttpURLConnection
         c.requestMethod = "HEAD"
+        c.readTimeout = 15_000
         c.instanceFollowRedirects = true
         c.connectTimeout = 20_000
         c.setRequestProperty("User-Agent", "SbandCode")
         return try {
             if (c.responseCode !in 200..299) error("Hugging Face: HTTP ${c.responseCode} for ${url.substringAfterLast('/')}")
-            c.contentLengthLong
+            c.contentLengthLong.also { check(it > 0) { "Hugging Face: unknown file size" } }
         } finally {
             c.disconnect()
         }

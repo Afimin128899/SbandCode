@@ -2,13 +2,12 @@ package app.sbandcode.android.engine
 
 import app.sbandcode.android.data.str
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.job
+import kotlinx.coroutines.runInterruptible
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import java.net.URLEncoder
-import kotlin.coroutines.coroutineContext
 
 class ApiError(val code: Int, message: String) : Exception(message)
 
@@ -49,11 +48,10 @@ class Api(private val engine: Engine) {
     suspend fun delete(path: String) = call("DELETE", path)
 
     /** Every event opencode sends, until the coroutine is cancelled or the stream breaks. */
-    suspend fun events(on: (JSONObject) -> Unit) = withContext(Dispatchers.IO) {
+    suspend fun events(on: (JSONObject) -> Unit) = runInterruptible(Dispatchers.IO) {
         val c = open("/api/event")
-        c.readTimeout = 0
+        c.readTimeout = 45_000
         c.setRequestProperty("Accept", "text/event-stream")
-        val hook = coroutineContext.job.invokeOnCompletion { runCatching { c.disconnect() } }
         try {
             if (c.responseCode != 200) throw ApiError(c.responseCode, "events: HTTP ${c.responseCode}")
             val data = StringBuilder()
@@ -65,12 +63,14 @@ class Api(private val engine: Engine) {
                             if (data.isNotEmpty()) runCatching { JSONObject(data.toString()) }.getOrNull()?.let(on)
                             data.clear()
                         }
-                        line.startsWith("data:") -> data.append(line.substring(5).trimStart())
+                        line.startsWith("data:") -> {
+                            if (data.isNotEmpty()) data.append('\n')
+                            data.append(line.substring(5).removePrefix(" "))
+                        }
                     }
                 }
             }
         } finally {
-            hook.dispose()
             c.disconnect()
         }
     }

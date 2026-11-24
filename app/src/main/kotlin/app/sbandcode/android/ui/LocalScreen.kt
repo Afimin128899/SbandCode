@@ -58,12 +58,31 @@ fun LocalScreen(brain: Brain, back: () -> Unit) {
     val scope = rememberCoroutineScope()
     var round by remember { mutableIntStateOf(0) }
     val installed = remember(round) { local.installed() }
+    val transfers = remember(round) { local.transfers() }
+    val free = remember(round) { local.freeBytes() }
+    var download by remember { mutableStateOf<Pair<String, List<String>>?>(null) }
+    var estimate by remember { mutableStateOf<Local.DownloadSize?>(null) }
+    var estimateError by remember { mutableStateOf<String?>(null) }
+    var remove by remember { mutableStateOf<String?>(null) }
     val progress = remember { mutableStateMapOf<String, Float>() }
     val jobs = remember { mutableMapOf<String, Job>() }
     var problem by remember { mutableStateOf<String?>(null) }
     var pictures by remember { mutableStateOf(false) }
     var link by remember { mutableStateOf("") }
     val ram = remember { local.ramGb() }
+
+    androidx.compose.runtime.LaunchedEffect(download) {
+        val target = download ?: return@LaunchedEffect
+        estimate = null
+        estimateError = null
+        try {
+            estimate = local.downloadSize(target.first, target.second)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            estimateError = e.message ?: e.toString()
+        }
+    }
 
     fun get(id: String, urls: List<String>) {
         problem = null
@@ -86,6 +105,7 @@ fun LocalScreen(brain: Brain, back: () -> Unit) {
             Text(tr("Работают без интернета и бесплатно, прямо на процессоре телефона. Они заметно медленнее и слабее облачных. Памяти в телефоне: ${"%.0f".format(ram)} ГБ, модель должна быть заметно меньше.",
                 "They work offline and for free, right on the phone's processor. They are much slower and weaker than cloud ones. This phone has ${"%.0f".format(ram)} GB of memory; a model should be well under that."),
                 color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(tr("Свободно: ${gb(free)}", "Free space: ${gb(free)}"))
             brain.localError?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
 
             Row(Modifier.fillMaxWidth().clickable { pictures = !pictures }, verticalAlignment = Alignment.CenterVertically) {
@@ -106,13 +126,19 @@ fun LocalScreen(brain: Brain, back: () -> Unit) {
                                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
                             when {
-                                p != null -> TextButton({ jobs[o.id]?.cancel() }) { Text(tr("Стоп", "Stop")) }
+                                p != null -> TextButton({ jobs[o.id]?.cancel() }) { Text(tr("Пауза", "Pause")) }
+                                transfers[o.id] != null -> {
+                                    TextButton({ download = o.id to transfers.getValue(o.id) }) {
+                                        Text(tr("Продолжить", "Resume"))
+                                    }
+                                    IconButton({ remove = o.id }) { Icon(Icons.Outlined.Delete, tr("Удалить", "Delete")) }
+                                }
                                 have -> {
                                     Icon(Icons.Outlined.CheckCircle, null, tint = MaterialTheme.colorScheme.primary)
-                                    IconButton({ local.remove(o.id); round++; brain.restart() }) { Icon(Icons.Outlined.Delete, tr("Удалить", "Delete")) }
+                                    IconButton({ remove = o.id }) { Icon(Icons.Outlined.Delete, tr("Удалить", "Delete")) }
                                 }
                                 else -> IconButton({
-                                    get(o.id, listOf(Local.url(o.repo, o.file)) + if (pictures && o.vision) listOf(Local.url(o.repo, o.mmproj)) else emptyList())
+                                    download = o.id to (listOf(Local.url(o.repo, o.file)) + if (pictures && o.vision) listOf(Local.url(o.repo, o.mmproj)) else emptyList())
                                 }) { Icon(Icons.Outlined.Download, tr("Скачать", "Download")) }
                             }
                         }
@@ -126,13 +152,13 @@ fun LocalScreen(brain: Brain, back: () -> Unit) {
                 }
             }
 
-            val own = installed.filter { id -> Local.OFFERS.none { it.id == id } }
+            val own = installed.filter { id -> id !in transfers && Local.OFFERS.none { it.id == id } }
             if (own.isNotEmpty()) {
                 Section(tr("Свои", "Your own"))
                 for (id in own) Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(id, Modifier.weight(1f))
                     Text(gb(local.size(id)), style = MaterialTheme.typography.bodySmall)
-                    IconButton({ local.remove(id); round++; brain.restart() }) { Icon(Icons.Outlined.Delete, tr("Удалить", "Delete")) }
+                    IconButton({ remove = id }) { Icon(Icons.Outlined.Delete, tr("Удалить", "Delete")) }
                 }
             }
             Section(tr("Своя модель", "A model of your own"))
@@ -143,14 +169,20 @@ fun LocalScreen(brain: Brain, back: () -> Unit) {
             val linkId = link.substringAfterLast('/').substringBefore('?').removeSuffix(".gguf").lowercase().replace(Regex("[^a-z0-9._-]+"), "-")
             OutlinedButton({
                 val fixed = link.replace("/blob/", "/resolve/")
-                get(linkId, listOf(fixed))
-                link = ""
-            }, enabled = link.startsWith("https://") && link.contains(".gguf") && progress[linkId] == null) {
+                download = linkId to listOf(fixed)
+            }, enabled = link.startsWith("https://huggingface.co/") && link.contains(".gguf") && linkId.any(Char::isLetterOrDigit) && progress[linkId] == null && linkId !in installed && linkId !in transfers) {
                 Icon(Icons.Outlined.Download, null, Modifier.size(18.dp))
                 Text(tr("Скачать", "Download"), Modifier.padding(start = 8.dp))
             }
-            progress.filterKeys { k -> Local.OFFERS.none { it.id == k } }.forEach { (k, v) ->
-                Text("$k: ${(v * 100).toInt()}%", style = MaterialTheme.typography.bodySmall)
+            val customTransfers = (transfers.keys + progress.keys).filter { key -> Local.OFFERS.none { it.id == key } }
+            for (key in customTransfers) Row(verticalAlignment = Alignment.CenterVertically) {
+                val value = progress[key]
+                Text(if (value == null) key else "$key · ${(value * 100).toInt()}%", Modifier.weight(1f))
+                if (value != null) TextButton({ jobs[key]?.cancel() }) { Text(tr("Пауза", "Pause")) }
+                else {
+                    TextButton({ download = key to transfers.getValue(key) }) { Text(tr("Продолжить", "Resume")) }
+                    IconButton({ remove = key }) { Icon(Icons.Outlined.Delete, tr("Удалить", "Delete")) }
+                }
             }
 
             Section(tr("Память разговора", "Conversation memory"))
@@ -166,5 +198,56 @@ fun LocalScreen(brain: Brain, back: () -> Unit) {
             problem?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall) }
             Spacer(Modifier.height(24.dp))
         }
+    }
+    download?.let { target ->
+        val size = estimate
+        val available = local.freeBytes()
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { download = null },
+            title = { Text(tr("Загрузить модель", "Download model")) },
+            text = {
+                when {
+                    estimateError != null -> Text(estimateError.orEmpty(), color = MaterialTheme.colorScheme.error)
+                    size == null -> androidx.compose.material3.CircularProgressIndicator()
+                    else -> {
+                        val total = gb(size.total)
+                        val remaining = gb(size.remaining)
+                        val freeSize = gb(available)
+                        Text(tr(
+                            "Размер: $total · Осталось: $remaining · Свободно: $freeSize",
+                            "Size: $total · Remaining: $remaining · Free: $freeSize",
+                        ))
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton({
+                    download = null
+                    get(target.first, target.second)
+                }, enabled = size != null && size.remaining <= available) { Text(tr("Загрузить", "Download")) }
+            },
+            dismissButton = { TextButton({ download = null }) { Text(tr("Отмена", "Cancel")) } },
+        )
+    }
+    remove?.let { id ->
+        androidx.compose.material3.AlertDialog(
+            onDismissRequest = { remove = null },
+            title = { Text(tr("Удалить $id?", "Delete $id?")) },
+            confirmButton = { TextButton({
+                remove = null
+                scope.launch {
+                    try {
+                        local.remove(id)
+                        round++
+                        brain.restart()
+                    } catch (e: kotlinx.coroutines.CancellationException) {
+                        throw e
+                    } catch (e: Exception) {
+                        problem = e.message ?: e.toString()
+                    }
+                }
+            }) { Text(tr("Удалить", "Delete")) } },
+            dismissButton = { TextButton({ remove = null }) { Text(tr("Отмена", "Cancel")) } },
+        )
     }
 }

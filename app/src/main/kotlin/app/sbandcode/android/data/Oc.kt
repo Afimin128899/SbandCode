@@ -153,7 +153,11 @@ class Message(
 }
 
 /** A tool asking to be allowed, as opencode asks in its own interface. */
-class Ask(val id: String, val session: String, val action: String, val resources: List<String>, val message: String?) {
+class Ask(
+    val id: String, val session: String, val action: String, val resources: List<String>,
+    val message: String?, val command: String?, val directory: String?,
+    val sourceMessage: String?, val sourceTool: String?,
+) {
     companion object {
         fun from(o: JSONObject) = Ask(
             id = o.str("id") ?: "",
@@ -161,6 +165,10 @@ class Ask(val id: String, val session: String, val action: String, val resources
             action = o.str("action") ?: "",
             resources = o.optJSONArray("resources").strings(),
             message = o.str("message"),
+            command = o.optJSONObject("metadata")?.str("command"),
+            directory = o.optJSONObject("metadata")?.let { it.str("workdir") ?: it.str("cwd") },
+            sourceMessage = o.optJSONObject("source")?.str("messageID"),
+            sourceTool = o.optJSONObject("source")?.str("id"),
         )
     }
 }
