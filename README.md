@@ -30,7 +30,7 @@ Use the Chat, Tools, and Settings tabs to switch between your conversation, proj
 - Open Git from the menu for status, history, local branches and commits from selected files. Install Alpine and its `git` package first. Web preview opens a local server at a loopback URL with an explicit port.
 - Check required and free space before downloading a local model, and pause, resume or delete downloads in the model screen.
 
-Use **+ → Files** in the composer to attach documents. To install a skill from chat, send `/skill https://example.com/SKILL.md` or use a HTTPS link to a ZIP containing a skill. The app shows the result in the chat and lists installed skills under **Tools → Skills and MCP**.
+Use **+ → Files** in the composer to attach documents. To install a skill from chat, send `/skill` followed by a public GitHub repository URL, a link to `SKILL.md`, or a HTTPS link to a ZIP. For example, `/skill https://github.com/DietrichGebert/ponytail` installs the main Ponytail skill. The app shows the result in the chat and lists installed skills under **Tools → Skills and MCP**.
 
 <details>
 <summary><b>Every model opencode knows</b></summary>

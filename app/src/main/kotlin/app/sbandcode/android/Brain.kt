@@ -857,7 +857,7 @@ class Brain(app: Application) : AndroidViewModel(app) {
         if (installingSkill) return
         val address = command.trim().split(Regex("""\s+"""), limit = 2).getOrNull(1)
         if (address == null) {
-            skillStatus = tr("Использование: /skill <HTTPS-ссылка на SKILL.md или ZIP>", "Usage: /skill <HTTPS link to SKILL.md or ZIP>")
+            skillStatus = tr("Использование: /skill <репозиторий GitHub, SKILL.md или ZIP>", "Usage: /skill <GitHub repository, SKILL.md or ZIP>")
             return
         }
         installingSkill = true
@@ -865,8 +865,7 @@ class Brain(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             try {
                 val title = withContext(Dispatchers.IO) {
-                    val (bytes, name) = SkillPackage.download(address)
-                    SkillPackage.install(skillsDir, bytes, name, remote = true)
+                    SkillPackage.installFromUrl(skillsDir, address)
                 }
                 api.post("/api/location/reload")
                 skillStatus = tr("Скилл «$title» установлен. Он доступен в «Инструменты → Скиллы и MCP».",
