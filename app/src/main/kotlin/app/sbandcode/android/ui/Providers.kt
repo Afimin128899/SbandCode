@@ -130,6 +130,11 @@ fun ProvidersScreen(brain: Brain, back: () -> Unit) {
         IconButton({ brain.screens.add("config") }) { Icon(Icons.Outlined.Settings, "opencode.json") }
     }) { mod ->
         LazyColumn(mod.navigationBarsPadding().imePadding()) {
+            item {
+                TextButton({ brain.screens.add("custom-api") }, Modifier.padding(horizontal = 16.dp)) {
+                    Text(tr("Свой API и модели", "Custom API and models"))
+                }
+            }
             item { Section("opencode") }
             for (id in listOf(GO, ZEN, CLAUDE)) {
                 val p = brain.integrations.firstOrNull { it.id == id } ?: continue

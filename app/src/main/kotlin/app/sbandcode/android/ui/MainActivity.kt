@@ -132,6 +132,7 @@ private fun Root(brain: Brain) {
                         }
                     }
                     screen == "workspace" -> WorkspaceScreen(brain, back)
+                    screen == "custom-api" -> CustomApiScreen(brain, back)
                     screen == "providers" -> ProvidersScreen(brain, back)
                     screen.startsWith("provider:") -> ProviderScreen(brain, screen.removePrefix("provider:"), back)
                     screen == "config" -> ConfigScreen(brain, back)

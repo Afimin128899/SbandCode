@@ -61,6 +61,7 @@ fun SettingsScreen(brain: Brain, back: () -> Unit) {
         Column(mod.verticalScroll(rememberScrollState()).navigationBarsPadding().imePadding()) {
             Section(tr("Модели и подключение", "Models and connections"))
             for ((destination, label) in listOf(
+                "custom-api" to tr("Свой API и модели", "Custom API and models"),
                 "providers" to tr("Провайдеры и ключи API", "Providers and API keys"),
                 "local" to tr("Локальные модели", "Local models"),
                 "limits" to tr("Лимиты и использование", "Limits and usage"),

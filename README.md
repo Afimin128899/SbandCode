@@ -34,9 +34,7 @@ Use the Chat, Tools, and Settings tabs to switch between your conversation, proj
 <summary><b>Every model opencode knows</b></summary>
 
 OpenCode Go and Zen, opencode's free models, sign-in with ChatGPT and GitHub
-Copilot, and an API key for any provider on models.dev. Your own providers, such
-as LM Studio, Ollama or a proxy, go into `opencode.json` as on a computer: the
-app has an editor for it, and you can paste the whole file.
+Copilot, and an API key for any provider on models.dev. OpenAI-compatible endpoints such as LM Studio, Ollama or a proxy can be added in **Settings → Custom API and models**. Enter the base URL, an API key if required, and model IDs manually or load them from the server. Advanced provider configuration is available in the `opencode.json` editor.
 
 The free models have a usage limit. On a VPN it can show up as already used, and
 the same models answered without one, so it seems to be counted by IP address.
