@@ -57,15 +57,18 @@ fun ModelSheet(brain: Brain, close: () -> Unit) {
     var query by remember { mutableStateOf("") }
     val current = brain.currentModel()
     val providers = brain.models.groupBy { it.provider }
-    ModalBottomSheet(close, sheetState = state, containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
+    ModalBottomSheet(close, sheetState = state, containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)) {
         Column(Modifier.fillMaxHeight(0.92f)) {
+            Text(tr("Модели", "Models"), Modifier.padding(start = 22.dp, bottom = 12.dp),
+                style = MaterialTheme.typography.titleLarge)
             OutlinedTextField(
                 query, { query = it },
                 placeholder = { Text(tr("Поиск моделей", "Search models")) },
                 leadingIcon = { Icon(Icons.Outlined.Search, null) },
                 singleLine = true,
                 shape = RoundedCornerShape(28.dp),
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp).graphitePanel(RoundedCornerShape(28.dp)),
             )
             val q = query.trim().lowercase()
             fun matches(m: Model) = q.isEmpty() || m.name.lowercase().contains(q) || m.id.lowercase().contains(q) ||

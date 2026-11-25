@@ -14,12 +14,15 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
+import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
@@ -27,6 +30,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.NavigationDrawerItem
@@ -96,12 +100,17 @@ fun Drawer(brain: Brain, close: () -> Unit) {
     val load = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) { brain.importSession(uri); close() }
     }
-    ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.width(310.dp)) {
-        Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
+    ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        modifier = Modifier.fillMaxWidth(0.9f).widthIn(max = 326.dp)) {
+        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 14.dp).graphitePanel().padding(start = 14.dp, end = 4.dp),
             verticalAlignment = Alignment.CenterVertically) {
-            Logo(42)
-            Text("SbandCode", Modifier.padding(start = 12.dp), style = MaterialTheme.typography.titleLarge,
-                fontWeight = FontWeight.SemiBold)
+            Logo(38)
+            Column(Modifier.weight(1f).padding(start = 12.dp, top = 12.dp, bottom = 12.dp)) {
+                Text("SbandCode", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                Text(tr("История чатов", "Chat history"), style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            IconButton(close) { Icon(Icons.Outlined.Close, tr("Закрыть историю", "Close history")) }
         }
         LazyColumn(Modifier.weight(1f).padding(horizontal = 12.dp)) {
             item(key = "chat-actions") {
@@ -113,11 +122,13 @@ fun Drawer(brain: Brain, close: () -> Unit) {
                 )
                 NavigationDrawerItem(
                     label = { Text(tr("Поиск по чатам", "Search chats")) },
+                    icon = { Icon(Icons.Outlined.Search, null) },
                     selected = false,
                     onClick = { brain.screens.add("search"); close() },
                 )
                 NavigationDrawerItem(
                     label = { Text(tr("Импорт чата", "Import chat")) },
+                    icon = { Icon(Icons.Outlined.FileDownload, null) },
                     selected = false,
                     onClick = { load.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
                 )

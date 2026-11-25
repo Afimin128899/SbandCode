@@ -1,5 +1,6 @@
 package app.sbandcode.android.engine
 
+import android.util.Base64
 import app.sbandcode.android.tr
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runInterruptible
@@ -12,6 +13,9 @@ class ProjectGit(
 ) {
     data class Change(val path: String, val status: String)
     data class Status(val branch: String, val changes: List<Change>, val branches: List<String>, val history: String)
+    data class GitHubDestination(val repository: String, val branch: String) {
+        val url get() = "https://github.com/$repository.git"
+    }
 
     suspend fun status(): Status {
         val status = git("status", "--porcelain=v1", "-z", "--no-renames")
@@ -31,6 +35,50 @@ class ProjectGit(
 
     suspend fun switchBranch(branch: String) {
         git("switch", "--", branch)
+    }
+
+    suspend fun githubDestination(): GitHubDestination? {
+        val branch = git("symbolic-ref", "--quiet", "--short", "HEAD", allowFailure = true).trim()
+        val remote = git("remote", "get-url", "--push", "--all", "origin", allowFailure = true)
+            .lineSequence().map(String::trim).filter(String::isNotEmpty).singleOrNull()
+        val repository = remote?.let(::githubRepository)
+        return if (branch.isNotEmpty() && repository != null) GitHubDestination(repository, branch) else null
+    }
+
+    suspend fun pushGitHub(destination: GitHubDestination, token: String) {
+        check(githubDestination() == destination) {
+            tr("Ветка или origin изменились. Обновите экран и повторите.", "The branch or origin changed. Refresh and try again.")
+        }
+        val authorization = "Authorization: Basic " + Base64.encodeToString(
+            "x-access-token:$token".toByteArray(Charsets.UTF_8), Base64.NO_WRAP,
+        )
+        val http = "http.${destination.url}"
+        val config = listOf(
+            "credential.helper" to "",
+            "$http.proxy" to "",
+            "$http.sslVerify" to "true",
+            "$http.sslCAInfo" to "/etc/ssl/certs/ca-certificates.crt",
+            "$http.followRedirects" to "false",
+            "$http.extraHeader" to "",
+            "$http.extraHeader" to authorization,
+        )
+        val pushEnvironment = buildMap {
+            put("GIT_ALLOW_PROTOCOL", "https")
+            put("GIT_CONFIG_COUNT", config.size.toString())
+            config.forEachIndexed { index, (key, value) ->
+                put("GIT_CONFIG_KEY_$index", key)
+                put("GIT_CONFIG_VALUE_$index", value)
+            }
+        }
+        val ref = "refs/heads/${destination.branch}"
+        try {
+            git("push", "--no-follow-tags", "--", destination.url, "$ref:$ref", extraEnvironment = pushEnvironment, timeoutSeconds = 180)
+        } catch (failure: IllegalStateException) {
+            val message = failure.message.orEmpty()
+                .replace(authorization.substringAfter("Basic "), "[redacted]")
+                .replace(token, "[redacted]")
+            error(message.ifBlank { tr("Не удалось отправить ветку", "Could not push the branch") })
+        }
     }
 
     suspend fun commit(message: String, paths: List<String>) {
@@ -75,15 +123,25 @@ class ProjectGit(
         vararg arguments: String,
         allowFailure: Boolean = false,
         input: String? = null,
+        extraEnvironment: Map<String, String> = emptyMap(),
+        timeoutSeconds: Long = 30,
     ): String = runInterruptible(Dispatchers.IO) {
         val env = linux.env(true)
         check(env.isNotEmpty()) { tr("Установите Alpine и пакет git", "Install Alpine and the git package") }
         val root = if (arguments.firstOrNull() == "rev-parse" || arguments.firstOrNull() == "apply") directory
             else File(runGit(directory, env, listOf("rev-parse", "--show-toplevel"), false, null).trim())
-        runGit(root, env, arguments.toList(), allowFailure, input)
+        runGit(root, env, arguments.toList(), allowFailure, input, extraEnvironment, timeoutSeconds)
     }
 
-    private fun runGit(directory: File, env: Map<String, String>, arguments: List<String>, allowFailure: Boolean, input: String?): String {
+    private fun runGit(
+        directory: File,
+        env: Map<String, String>,
+        arguments: List<String>,
+        allowFailure: Boolean,
+        input: String?,
+        extraEnvironment: Map<String, String> = emptyMap(),
+        timeoutSeconds: Long = 30,
+    ): String {
         val output = File.createTempFile("sband-git-", ".log", File(env.getValue("SBANDCODE_CACHE")))
         try {
             val process = ProcessBuilder(listOf(
@@ -92,13 +150,18 @@ class ProjectGit(
             ) + arguments)
                 .directory(directory).redirectErrorStream(true).redirectOutput(output)
                 .apply {
+                    if (extraEnvironment.isNotEmpty()) environment().keys.removeAll {
+                        it.startsWith("GIT_TRACE") || it.startsWith("GIT_SSL_") ||
+                            it in setOf("GIT_CONFIG_PARAMETERS", "GIT_CURL_VERBOSE", "GIT_ASKPASS", "SSH_ASKPASS")
+                    }
                     environment().putAll(env)
+                    environment().putAll(extraEnvironment)
                     environment()["PWD"] = directory.absolutePath
                     environment()["GIT_TERMINAL_PROMPT"] = "0"
                 }.start()
             try {
                 process.outputStream.use { stream -> input?.let { stream.write(it.toByteArray(Charsets.UTF_8)) } }
-                check(process.waitFor(30, TimeUnit.SECONDS)) { tr("Git не ответил вовремя", "Git timed out") }
+                check(process.waitFor(timeoutSeconds, TimeUnit.SECONDS)) { tr("Git не ответил вовремя", "Git timed out") }
                 val text = output.readText()
                 if (process.exitValue() == 0) return text
                 if (allowFailure) return ""
@@ -110,4 +173,14 @@ class ProjectGit(
             output.delete()
         }
     }
+}
+
+private fun githubRepository(remote: String): String? {
+    val path = when {
+        remote.startsWith("https://github.com/", ignoreCase = true) -> remote.substring("https://github.com/".length)
+        remote.startsWith("git@github.com:", ignoreCase = true) -> remote.substring("git@github.com:".length)
+        remote.startsWith("ssh://git@github.com/", ignoreCase = true) -> remote.substring("ssh://git@github.com/".length)
+        else -> return null
+    }.removeSuffix("/").removeSuffix(".git")
+    return path.takeIf { it.matches(Regex("[A-Za-z0-9][A-Za-z0-9-]*/[A-Za-z0-9_.-]+")) && it.substringAfter('/') !in setOf(".", "..") }
 }

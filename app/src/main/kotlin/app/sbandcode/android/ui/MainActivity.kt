@@ -21,6 +21,8 @@ import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
@@ -28,6 +30,7 @@ import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.material3.Icon
 import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
+import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.foundation.layout.fillMaxSize
@@ -40,8 +43,13 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.Surface
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.unit.dp
 import androidx.lifecycle.lifecycleScope
 import app.sbandcode.android.Brain
 import app.sbandcode.android.engine.ChatNotifications
@@ -111,62 +119,79 @@ private fun Root(brain: Brain) {
     val drawer = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val top = brain.screens.lastOrNull()
-    BackHandler(top != null) { brain.screens.removeAt(brain.screens.lastIndex) }
-    BackHandler(top == null && drawer.isOpen) { scope.launch { drawer.close() } }
+    val historyVisible = drawer.currentValue == DrawerValue.Open || drawer.targetValue == DrawerValue.Open
+    val focus = LocalFocusManager.current
+    val keyboard = LocalSoftwareKeyboardController.current
+    BackHandler(top != null && !historyVisible) { brain.screens.removeAt(brain.screens.lastIndex) }
+    BackHandler(historyVisible) { scope.launch { drawer.close() } }
+    LaunchedEffect(drawer.targetValue) {
+        if (drawer.targetValue == DrawerValue.Open) {
+            focus.clearFocus()
+            keyboard?.hide()
+        }
+    }
     val saved = rememberSaveableStateHolder()
     val showTabs = (top == null || top == "workspace" || top == "settings") &&
-        WindowInsets.ime.getBottom(LocalDensity.current) == 0 && !drawer.isOpen
-    Column(Modifier.fillMaxSize().imePadding()) {
-        Box(Modifier.weight(1f).then(
-            if (showTabs) Modifier.consumeWindowInsets(WindowInsets.navigationBars) else Modifier,
-        )) {
-            AnimatedContent(top, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "screen") { screen ->
-                val back = { if (brain.screens.isNotEmpty()) brain.screens.removeAt(brain.screens.lastIndex) }
-                when {
-                    screen == null -> saved.SaveableStateProvider("chat") {
-                        ModalNavigationDrawer(
-                            drawerState = drawer,
-                            drawerContent = { Drawer(brain) { scope.launch { drawer.close() } } },
-                        ) {
+        WindowInsets.ime.getBottom(LocalDensity.current) == 0
+    ModalNavigationDrawer(
+        drawerState = drawer,
+        gesturesEnabled = top == null || historyVisible,
+        drawerContent = { Drawer(brain) { scope.launch { drawer.close() } } },
+    ) {
+        Column(Modifier.fillMaxSize().imePadding()) {
+            Box(Modifier.weight(1f).then(
+                if (showTabs) Modifier.consumeWindowInsets(WindowInsets.navigationBars) else Modifier,
+            )) {
+                AnimatedContent(top, transitionSpec = { fadeIn() togetherWith fadeOut() }, label = "screen") { screen ->
+                    val back = { if (brain.screens.isNotEmpty()) brain.screens.removeAt(brain.screens.lastIndex) }
+                    when {
+                        screen == null -> saved.SaveableStateProvider("chat") {
                             ChatScreen(brain, openDrawer = { scope.launch { drawer.open() } })
                         }
+                        screen == "workspace" -> WorkspaceScreen(brain, back)
+                        screen == "custom-api" -> CustomApiScreen(brain, back)
+                        screen == "providers" -> ProvidersScreen(brain, back)
+                        screen.startsWith("provider:") -> ProviderScreen(brain, screen.removePrefix("provider:"), back)
+                        screen == "config" -> ConfigScreen(brain, back)
+                        screen == "settings" -> SettingsScreen(brain, back)
+                        screen == "limits" -> LimitsScreen(brain, back)
+                        screen == "tools" -> ToolsScreen(brain, back)
+                        screen == "linux" -> LinuxScreen(brain, back)
+                        screen == "local" -> LocalScreen(brain, back)
+                        screen == "search" -> ChatSearchScreen(brain, back)
+                        screen == "profiles" -> ProfilesScreen(brain, back)
+                        screen == "preview" -> PreviewScreen(brain, back)
+                        screen == "git" -> GitScreen(brain, back)
+                        screen == "github" -> GitHubScreen(brain, back)
+                        screen == "changes" -> ChangesScreen(brain, back)
                     }
-                    screen == "workspace" -> WorkspaceScreen(brain, back)
-                    screen == "custom-api" -> CustomApiScreen(brain, back)
-                    screen == "providers" -> ProvidersScreen(brain, back)
-                    screen.startsWith("provider:") -> ProviderScreen(brain, screen.removePrefix("provider:"), back)
-                    screen == "config" -> ConfigScreen(brain, back)
-                    screen == "settings" -> SettingsScreen(brain, back)
-                    screen == "limits" -> LimitsScreen(brain, back)
-                    screen == "tools" -> ToolsScreen(brain, back)
-                    screen == "linux" -> LinuxScreen(brain, back)
-                    screen == "local" -> LocalScreen(brain, back)
-                    screen == "search" -> ChatSearchScreen(brain, back)
-                    screen == "profiles" -> ProfilesScreen(brain, back)
-                    screen == "preview" -> PreviewScreen(brain, back)
-                    screen == "git" -> GitScreen(brain, back)
-                    screen == "changes" -> ChangesScreen(brain, back)
                 }
             }
-        }
-        if (showTabs) {
-            NavigationBar(containerColor = MaterialTheme.colorScheme.surfaceContainerLow) {
-                for ((route, label, icon) in listOf(
-                    Triple(null, tr("Чат", "Chat"), Icons.Outlined.ChatBubbleOutline),
-                    Triple("workspace", tr("Инструменты", "Tools"), Icons.Outlined.Build),
-                    Triple("settings", tr("Настройки", "Settings"), Icons.Outlined.Settings),
-                )) {
-                    NavigationBarItem(
-                        selected = top == route,
-                        onClick = {
-                            if (top != route) {
-                                brain.screens.clear()
-                                if (route != null) brain.screens.add(route)
-                            }
-                        },
-                        icon = { Icon(icon, null) },
-                        label = { Text(label) },
-                    )
+            if (showTabs) {
+                NavigationBar(
+                    modifier = Modifier.navigationBarsPadding().padding(horizontal = 12.dp, vertical = 6.dp).graphitePanel(),
+                    containerColor = Color.Transparent,
+                    windowInsets = WindowInsets(0, 0, 0, 0),
+                ) {
+                    for ((route, label, icon) in listOf(
+                        Triple(null, tr("Чат", "Chat"), Icons.Outlined.ChatBubbleOutline),
+                        Triple("workspace", tr("Инструменты", "Tools"), Icons.Outlined.Build),
+                        Triple("settings", tr("Настройки", "Settings"), Icons.Outlined.Settings),
+                    )) {
+                        NavigationBarItem(
+                            selected = top == route,
+                            enabled = !historyVisible,
+                            onClick = {
+                                if (!historyVisible && top != route) {
+                                    brain.screens.clear()
+                                    if (route != null) brain.screens.add(route)
+                                }
+                            },
+                            icon = { Icon(icon, null) },
+                            label = { Text(label) },
+                            colors = NavigationBarItemDefaults.colors(indicatorColor = MaterialTheme.colorScheme.surfaceContainerHighest),
+                        )
+                    }
                 }
             }
         }

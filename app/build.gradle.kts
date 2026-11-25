@@ -13,8 +13,8 @@ android {
         applicationId = "app.sbandcode.android"
         minSdk = 28
         targetSdk = 35
-        versionCode = 5
-        versionName = "0.5"
+        versionCode = 15
+        versionName = "0.13"
         ndk { abiFilters += "arm64-v8a" }
     }
 

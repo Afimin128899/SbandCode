@@ -21,6 +21,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -37,6 +39,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -92,14 +95,25 @@ fun SettingsScreen(brain: Brain, back: () -> Unit) {
     Page(tr("Настройки", "Settings"), back) { mod ->
         Column(mod.verticalScroll(rememberScrollState()).navigationBarsPadding().imePadding()) {
             Section(tr("Модели и подключение", "Models and connections"))
-            for ((destination, label) in listOf(
-                "custom-api" to tr("Свой API и модели", "Custom API and models"),
-                "providers" to tr("Провайдеры и ключи API", "Providers and API keys"),
-                "local" to tr("Локальные модели", "Local models"),
-                "limits" to tr("Лимиты и использование", "Limits and usage"),
-            )) {
-                TextButton({ brain.screens.add(destination) }, Modifier.padding(start = 12.dp)) { Text(label) }
+            Column(Modifier.padding(horizontal = 16.dp).graphitePanel().padding(vertical = 4.dp)) {
+                for ((destination, label) in listOf(
+                    "custom-api" to tr("Свой API и модели", "Custom API and models"),
+                    "providers" to tr("Провайдеры и ключи API", "Providers and API keys"),
+                    "local" to tr("Локальные модели", "Local models"),
+                    "limits" to tr("Лимиты и использование", "Limits and usage"),
+                )) {
+                    ListItem(headlineContent = { Text(label) },
+                        colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                        modifier = Modifier.clickable { brain.screens.add(destination) })
+                }
             }
+            Section(tr("Аккаунты", "Accounts"))
+            ListItem(
+                headlineContent = { Text("GitHub") },
+                supportingContent = { Text(tr("Вход для отправки веток", "Sign in to push branches")) },
+                colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                modifier = Modifier.padding(horizontal = 16.dp).graphitePanel().clickable { brain.screens.add("github") },
+            )
 
             Section(tr("Уведомления", "Notifications"))
             TextButton({

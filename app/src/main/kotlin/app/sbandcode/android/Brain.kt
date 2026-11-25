@@ -15,6 +15,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import app.sbandcode.android.data.Ask
 import app.sbandcode.android.data.CustomApi
+import app.sbandcode.android.data.GitHubAccount
 import app.sbandcode.android.data.Integration
 import app.sbandcode.android.data.Message
 import app.sbandcode.android.data.Model
@@ -55,6 +56,7 @@ class Brain(app: Application) : AndroidViewModel(app) {
     val claude = ClaudeCode(app, engine)
     val linux = Linux(app, engine)
     val local = Local(app)
+    val github = GitHubAccount(app)
     /** What went wrong starting the models on the phone, if anything. */
     var localError by mutableStateOf<String?>(null)
         private set

@@ -82,6 +82,7 @@ fun Page(title: String, back: () -> Unit, actions: @Composable () -> Unit = {}, 
             title = { Text(title) },
             navigationIcon = { IconButton(back) { Icon(Icons.AutoMirrored.Outlined.ArrowBack, tr("Назад", "Back")) } },
             actions = { actions() },
+            colors = androidx.compose.material3.TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surfaceContainerLow),
         )
         content(Modifier.weight(1f).fillMaxWidth())
     }

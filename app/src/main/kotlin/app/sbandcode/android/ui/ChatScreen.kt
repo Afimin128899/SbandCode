@@ -46,6 +46,7 @@ import androidx.compose.foundation.text.selection.SelectionContainer
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
+import androidx.compose.material.icons.outlined.AttachFile
 import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
@@ -73,7 +74,11 @@ import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
+import androidx.compose.material3.ListItem
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -163,10 +168,14 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
                 IconButton(openDrawer) { Icon(Icons.Outlined.Menu, tr("История чатов", "Chat history")) }
             },
             title = {
-                Row(Modifier.clip(RoundedCornerShape(12.dp)).clickable(enabled = brain.ready) { picker = true }
-                    .padding(vertical = 7.dp, horizontal = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(model?.name ?: "SbandCode", Modifier.weight(1f, fill = false), maxLines = 1,
-                        overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleLarge)
+                Row(Modifier.graphitePanel(RoundedCornerShape(18.dp)).clickable(enabled = brain.ready) { picker = true }
+                    .padding(vertical = 6.dp, horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                    Column(Modifier.weight(1f, fill = false)) {
+                        Text(model?.name ?: "SbandCode", maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.titleMedium)
+                        model?.let { Text(brain.providerName(it.provider), maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    }
                     if (brain.ready) Icon(Icons.Outlined.KeyboardArrowDown, tr("Выбрать модель", "Choose model"), Modifier.size(18.dp))
                 }
             },
@@ -256,6 +265,12 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
             cancelEdit = { editing = null; editedText = "" },
             running = running,
             onPick = { uris -> scope.launch { for (u in uris) brain.importPicture(u)?.let { pictures += it } } },
+            onFiles = { uris -> scope.launch {
+                val files = uris.mapNotNull { brain.importSharedFile(it) }
+                pictures.addAll(files)
+                if (files.size != uris.size) brain.notice = tr("Некоторые файлы не удалось добавить. Максимум 25 МБ на файл.",
+                    "Some files could not be added. The limit is 25 MB per file.")
+            } },
             send = {
                 val e = editing
                 if (e != null) {
@@ -379,15 +394,17 @@ private fun Starting(brain: Brain) {
 
 @Composable
 private fun Welcome(brain: Brain) {
-    Column(Modifier.fillMaxSize().padding(horizontal = 28.dp),
-        verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Logo(48)
-        Spacer(Modifier.height(16.dp))
-        Text(tr("Над чем поработаем?", "What are we working on?"),
-            style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-        if (brain.currentModel() == null) {
-            TextButton({ brain.screens.add("settings"); brain.screens.add("providers") }) {
-                Text(tr("Подключить провайдера", "Connect a provider"))
+    Box(Modifier.fillMaxSize().padding(horizontal = 16.dp), contentAlignment = Alignment.Center) {
+        Column(Modifier.widthIn(max = 520.dp).fillMaxWidth().verticalScroll(rememberScrollState())
+            .graphitePanel(RoundedCornerShape(28.dp)).padding(22.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Logo(48)
+            Text(tr("Над чем поработаем?", "What are we working on?"),
+                style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
+            if (brain.currentModel() == null) {
+                TextButton({ brain.screens.add("settings"); brain.screens.add("providers") }) {
+                    Text(tr("Подключить провайдера", "Connect a provider"))
+                }
             }
         }
     }
@@ -597,6 +614,7 @@ private fun Answer(m: Message, live: Boolean, last: Boolean, again: () -> Unit) 
     }
 }
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun Composer(
     brain: Brain,
@@ -607,18 +625,19 @@ private fun Composer(
     cancelEdit: () -> Unit,
     running: Boolean,
     onPick: (List<android.net.Uri>) -> Unit,
+    onFiles: (List<android.net.Uri>) -> Unit,
     send: () -> Unit,
     stop: () -> Unit,
 ) {
     val model = brain.currentModel()
     val pick = rememberLauncherForActivityResult(ActivityResultContracts.PickMultipleVisualMedia(6)) { onPick(it) }
+    val files = rememberLauncherForActivityResult(ActivityResultContracts.OpenMultipleDocuments()) { onFiles(it) }
     val hasAttachments = editing?.files?.isNotEmpty() ?: pictures.isNotEmpty()
     val canSend = brain.ready && model != null && (text.isNotBlank() || hasAttachments)
     var extras by remember { mutableStateOf(false) }
-    Surface(
-        color = MaterialTheme.colorScheme.surfaceContainerHigh,
-        shape = RoundedCornerShape(18.dp),
-        modifier = Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
+    Box(
+        Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(start = 12.dp, end = 12.dp, bottom = 6.dp)
+            .graphitePanel(RoundedCornerShape(26.dp)),
     ) {
         Column(Modifier.padding(6.dp)) {
             editing?.let {
@@ -641,7 +660,7 @@ private fun Composer(
             }
             TextField(
                 value = text, onValueChange = onText,
-                placeholder = { Text(tr("Сообщение", "Message")) },
+                placeholder = { Text(tr("Написать в SbandCode", "Message SbandCode")) },
                 maxLines = 8,
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
@@ -650,34 +669,11 @@ private fun Composer(
                 ),
                 modifier = Modifier.fillMaxWidth(),
             )
-            AnimatedVisibility(extras) {
-                Row(Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically) {
-                    if (model?.images == true && editing == null) IconButton({
-                        pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
-                    }) { Icon(Icons.Outlined.AddPhotoAlternate, tr("Картинка", "Picture")) }
-                    if (model != null && model.variants.isNotEmpty()) ThinkingChip(brain, enabled = !running)
-                    if (model != null && brain.isLocal(model)) {
-                        val tools = brain.prefs.localTools
-                        Surface(
-                            color = if (tools) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
-                            shape = RoundedCornerShape(18.dp),
-                            modifier = Modifier.clip(RoundedCornerShape(18.dp)).clickable { brain.setLocalTools(!tools) },
-                        ) {
-                            Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Icon(Icons.Outlined.Build, null, Modifier.size(16.dp))
-                                Text(if (tools) tr("Агент", "Agent") else tr("Чат", "Chat"), style = MaterialTheme.typography.labelLarge,
-                                    modifier = Modifier.padding(start = 6.dp))
-                            }
-                        }
-                    }
-                    if (editing == null) FolderChip(brain)
-                }
-            }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton({ extras = !extras }) {
-                    Icon(Icons.Outlined.Add, if (extras) tr("Скрыть параметры сообщения", "Hide message options")
-                        else tr("Открыть параметры сообщения", "Open message options"))
+                val hasOptions = editing == null || model?.variants?.isNotEmpty() == true || (model != null && brain.isLocal(model))
+                FilledIconButton({ extras = true }, enabled = hasOptions,
+                    colors = IconButtonDefaults.filledIconButtonColors(containerColor = MaterialTheme.colorScheme.surfaceContainerHighest)) {
+                    Icon(Icons.Outlined.Add, tr("Вложения и параметры", "Attachments and options"))
                 }
                 Spacer(Modifier.weight(1f))
                 if (running) IconButton(stop) { Icon(Icons.Outlined.Stop, tr("Остановить", "Stop")) }
@@ -689,6 +685,33 @@ private fun Composer(
                     )
                 }
             }
+        }
+    }
+    if (extras) ModalBottomSheet(onDismissRequest = { extras = false }, containerColor = MaterialTheme.colorScheme.surfaceContainerLow,
+        sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)) {
+        Text(tr("Вложения и параметры", "Attachments and options"), Modifier.padding(start = 22.dp, bottom = 12.dp),
+            style = MaterialTheme.typography.titleLarge)
+        Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 14.dp).verticalScroll(rememberScrollState()).graphitePanel()) {
+            if (editing == null) {
+                ListItem(headlineContent = { Text(tr("Добавить файлы", "Add files")) },
+                    leadingContent = { Icon(Icons.Outlined.AttachFile, null) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable { extras = false; files.launch(arrayOf("*/*")) })
+                if (model?.images == true) ListItem(headlineContent = { Text(tr("Добавить фото", "Add photos")) },
+                    leadingContent = { Icon(Icons.Outlined.AddPhotoAlternate, null) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable {
+                        extras = false
+                        pick.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
+                    })
+                Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) { FolderChip(brain) }
+            }
+            if (model != null && model.variants.isNotEmpty()) Box(Modifier.padding(horizontal = 12.dp, vertical = 4.dp)) {
+                ThinkingChip(brain, enabled = !running)
+            }
+            if (model != null && brain.isLocal(model)) ListItem(
+                headlineContent = { Text(tr("Режим локальной модели", "Local model mode")) },
+                supportingContent = { Text(if (brain.prefs.localTools) tr("Агент", "Agent") else tr("Чат", "Chat")) },
+                leadingContent = { Icon(Icons.Outlined.Build, null) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                modifier = Modifier.clickable { brain.setLocalTools(!brain.prefs.localTools) })
         }
     }
 }

@@ -191,6 +191,10 @@ fun GitScreen(brain: Brain, back: () -> Unit) {
     var pending by remember { mutableStateOf(false) }
     var branch by remember { mutableStateOf<String?>(null) }
     var suggest by remember { mutableStateOf(false) }
+    var login by remember { mutableStateOf<String?>(null) }
+    var destination by remember(git) { mutableStateOf<ProjectGit.GitHubDestination?>(null) }
+    var send by remember(git) { mutableStateOf<ProjectGit.GitHubDestination?>(null) }
+    var pushed by remember(git) { mutableStateOf<String?>(null) }
     val agentRunning = brain.sessions.any { it.directory == directory.absolutePath && brain.isRunning(it.id) }
     val scope = rememberCoroutineScope()
 
@@ -198,10 +202,13 @@ fun GitScreen(brain: Brain, back: () -> Unit) {
         if (pending) return
         pending = true
         problem = null
+        pushed = null
         scope.launch {
             try {
+                login = brain.github.login()
                 action()
                 status = git.status()
+                destination = git.githubDestination()
                 selected.retainAll(status?.changes.orEmpty().map { it.path }.toSet())
             } catch (e: CancellationException) {
                 throw e
@@ -218,8 +225,28 @@ fun GitScreen(brain: Brain, back: () -> Unit) {
         LazyColumn(mod.navigationBarsPadding().imePadding().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             item {
                 Text(directory.absolutePath, style = MaterialTheme.typography.labelMedium)
-                TextButton({ work() }, enabled = !pending) { Text(tr("Обновить", "Refresh")) }
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                    TextButton({ work() }, enabled = !pending) { Text(tr("Обновить", "Refresh")) }
+                    TextButton({ brain.screens.add("github") }, enabled = !pending) {
+                        Text(login?.let { "@$it" } ?: tr("Войти в GitHub", "Sign in to GitHub"))
+                    }
+                }
+                destination?.let { target ->
+                    Column(Modifier.fillMaxWidth().graphitePanel().padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        Text(target.repository, style = MaterialTheme.typography.titleMedium)
+                        Text(target.branch, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        Button({ send = target }, enabled = login != null && status?.history?.isNotBlank() == true && !pending && !agentRunning) {
+                            Text(tr("Отправить ветку", "Push branch"))
+                        }
+                    }
+                }
+                if (status != null && destination == null) Text(
+                    tr("Для отправки выберите локальную ветку и настройте один GitHub-адрес origin.",
+                        "Select a local branch and configure a single GitHub origin to push."),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
                 if (pending) CircularProgressIndicator()
+                pushed?.let { Text(it, color = MaterialTheme.colorScheme.primary) }
                 problem?.let { Text(it, color = MaterialTheme.colorScheme.error) }
                 status?.let { value ->
                     Choice(tr("Ветка", "Branch"), value.branches.map { it to it }, value.branch) {
@@ -253,6 +280,21 @@ fun GitScreen(brain: Brain, back: () -> Unit) {
                 SelectionContainer { Text(status?.history.orEmpty(), fontFamily = FontFamily.Monospace) }
             }
         }
+    }
+    send?.let { target ->
+        AlertDialog(
+            onDismissRequest = { send = null },
+            title = { Text(tr("Отправить ветку на GitHub?", "Push branch to GitHub?")) },
+            text = { Text("${target.repository} · ${target.branch}") },
+            confirmButton = { TextButton({
+                send = null
+                work {
+                    git.pushGitHub(target, brain.github.token())
+                    pushed = tr("Ветка ${target.branch} отправлена", "Branch ${target.branch} pushed")
+                }
+            }, enabled = !agentRunning && !pending) { Text(tr("Отправить", "Push")) } },
+            dismissButton = { TextButton({ send = null }) { Text(tr("Отмена", "Cancel")) } },
+        )
     }
     if (suggest) AlertDialog(
         onDismissRequest = { suggest = false },
