@@ -47,6 +47,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.Send
 import androidx.compose.material.icons.outlined.AddPhotoAlternate
 import androidx.compose.material.icons.outlined.Build
+import androidx.compose.material.icons.outlined.Code
+import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.ContentCopy
 import androidx.compose.material.icons.outlined.Edit
@@ -97,6 +99,10 @@ import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.heading
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
@@ -157,16 +163,20 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
         brain.shared = null
     }
 
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally) {
         TopAppBar(
             navigationIcon = {
                 IconButton(openDrawer) { Icon(Icons.Outlined.Menu, tr("История чатов", "Chat history")) }
             },
             title = {
-                Row(Modifier.clip(RoundedCornerShape(12.dp)).clickable(enabled = brain.ready) { picker = true }
+                Row(Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(12.dp)).clickable(
+                    enabled = brain.ready, role = Role.Button,
+                    onClickLabel = tr("Выбрать модель", "Choose model"),
+                ) { picker = true }
                     .padding(vertical = 7.dp, horizontal = 5.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(model?.name ?: "SbandCode", Modifier.weight(1f, fill = false), maxLines = 1,
-                        overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleLarge)
+                    Text(model?.name ?: if (brain.ready) tr("Выбрать модель", "Choose model") else "SbandCode",
+                        Modifier.weight(1f, fill = false), maxLines = 1,
+                        overflow = TextOverflow.Ellipsis, style = MaterialTheme.typography.titleMedium)
                     if (brain.ready) Icon(Icons.Outlined.KeyboardArrowDown, tr("Выбрать модель", "Choose model"), Modifier.size(18.dp))
                 }
             },
@@ -178,11 +188,11 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
             colors = TopAppBarDefaults.topAppBarColors(containerColor = MaterialTheme.colorScheme.surface),
         )
 
-        Box(Modifier.weight(1f).fillMaxWidth()) {
+        Box(Modifier.weight(1f).widthIn(max = 840.dp).fillMaxWidth()) {
             val shown = brain.shown()
             when {
                 !brain.ready -> Starting(brain)
-                id == null || shown.isEmpty() -> Welcome(brain)
+                id == null || shown.isEmpty() -> Welcome(brain, onPrompt = { text = it })
                 else -> {
                     val list = rememberLazyListState()
 
@@ -378,17 +388,53 @@ private fun Starting(brain: Brain) {
 }
 
 @Composable
-private fun Welcome(brain: Brain) {
-    Column(Modifier.fillMaxSize().padding(horizontal = 28.dp),
-        verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
-        Logo(48)
-        Spacer(Modifier.height(16.dp))
-        Text(tr("Над чем поработаем?", "What are we working on?"),
-            style = MaterialTheme.typography.headlineSmall, fontWeight = FontWeight.SemiBold)
-        if (brain.currentModel() == null) {
-            TextButton({ brain.screens.add("settings"); brain.screens.add("providers") }) {
-                Text(tr("Подключить провайдера", "Connect a provider"))
+private fun Welcome(brain: Brain, onPrompt: (String) -> Unit) {
+    val model = brain.currentModel()
+    val chatOnly = model != null && brain.isLocal(model) && !brain.prefs.localTools
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(vertical = 24.dp)) {
+        Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Logo(48)
+            Text(tr("Что сделаем в проекте?", "What shall we build?"),
+                style = MaterialTheme.typography.headlineSmall, modifier = Modifier.semantics { heading() })
+            Text(if (chatOnly) tr("Сейчас включён режим «Чат»: модель отвечает без доступа к файлам и командам.",
+                "Chat mode is on: the model answers without access to files or commands.")
+                else tr("Опишите задачу. Агент изучит файлы, предложит решение и внесёт изменения.",
+                    "Describe a task. The agent will read your files, suggest a solution and make changes."),
+                style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        }
+        if (model == null) {
+            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text(tr("Для начала подключите модель по подписке или ключу API. Локальные модели доступны в настройках.",
+                    "First connect a model with your subscription or API key. Local models are available in Settings."),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Button({ brain.screens.add("providers") }, Modifier.fillMaxWidth()) {
+                    Text(tr("Подключить модель", "Connect a model"))
+                }
             }
+        } else if (chatOnly) {
+            ActionRow(tr("Работать с файлами проекта", "Work with project files"),
+                tr("Включить режим «Агент». На телефоне он работает медленнее", "Enable Agent mode. It runs more slowly on your phone"),
+                Icons.Outlined.Build, { brain.setLocalTools(true) })
+        } else {
+            Section(tr("Начните с примера", "Start with an example"))
+            ActionRow(tr("Разобраться в проекте", "Explore the project"),
+                tr("Объяснить структуру и точку входа", "Explain the structure and entry point"),
+                Icons.Outlined.Search,
+                { onPrompt(tr("Изучи проект в выбранной папке. Объясни его структуру и как его запустить.",
+                    "Explore the project in the selected folder. Explain its structure and how to run it.")) })
+            ActionRow(tr("Найти ошибку", "Find a bug"),
+                tr("Подготовить запрос для проверки кода", "Prepare a request to review the code"),
+                Icons.Outlined.Build,
+                { onPrompt(tr("Проверь проект на ошибки. Сначала объясни найденные проблемы и предложи исправления.",
+                    "Review the project for bugs. Explain the problems and suggest fixes first.")) })
+            ActionRow(tr("Добавить возможность", "Add a feature"),
+                tr("Заполнить черновик своей задачей", "Complete the draft with your task"),
+                Icons.Outlined.Code,
+                { onPrompt(tr("Помоги добавить в проект новую возможность: ", "Help me add a new feature to the project: ")) })
+            Text(tr("Пример заполнит поле сообщения. Отправляете только вы.",
+                "Examples fill the message field. Nothing is sent until you send it."),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp))
         }
     }
 }
@@ -581,7 +627,7 @@ private fun Answer(m: Message, live: Boolean, last: Boolean, again: () -> Unit) 
         if (live && m.parts.isEmpty()) Dots()
         m.error?.let { ErrorCard(it) }
         if (!live && (text.isNotEmpty() || last)) Row(verticalAlignment = Alignment.CenterVertically) {
-            val small = Modifier.size(36.dp)
+            val small = Modifier.size(48.dp)
             val tint = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.onSurfaceVariant)
             if (text.isNotEmpty()) IconButton({ clipboard.setText(AnnotatedString(text)) }, small, colors = tint) {
                 Icon(Icons.Outlined.ContentCopy, tr("Копировать", "Copy"), Modifier.size(18.dp))
@@ -618,30 +664,35 @@ private fun Composer(
     Surface(
         color = MaterialTheme.colorScheme.surfaceContainerHigh,
         shape = RoundedCornerShape(18.dp),
-        modifier = Modifier.fillMaxWidth().navigationBarsPadding().imePadding().padding(start = 14.dp, end = 14.dp, bottom = 12.dp),
+        modifier = Modifier.widthIn(max = 840.dp).fillMaxWidth().navigationBarsPadding().imePadding()
+            .padding(start = 16.dp, end = 16.dp, bottom = 12.dp),
     ) {
         Column(Modifier.padding(6.dp)) {
+            if (editing == null) FolderChip(brain)
             editing?.let {
                 Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.padding(start = 14.dp)) {
                     Icon(Icons.Outlined.Edit, null, Modifier.size(16.dp), tint = MaterialTheme.colorScheme.primary)
                     Text(tr("Изменение сообщения", "Editing a message"), style = MaterialTheme.typography.labelLarge,
                         color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(start = 6.dp).weight(1f))
-                    IconButton(cancelEdit, Modifier.size(32.dp)) { Icon(Icons.Outlined.Close, tr("Отмена", "Cancel"), Modifier.size(18.dp)) }
+                    IconButton(cancelEdit) { Icon(Icons.Outlined.Close, tr("Отмена", "Cancel"), Modifier.size(18.dp)) }
                 }
             }
             if (editing == null && pictures.isNotEmpty()) Row(Modifier.horizontalScroll(rememberScrollState()).padding(8.dp),
                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 for (p in pictures.toList()) Box {
                     Attachment(p, 64)
-                    Surface(color = Color.Black.copy(alpha = 0.55f), shape = CircleShape,
-                        modifier = Modifier.align(Alignment.TopEnd).padding(3.dp).size(20.dp).clip(CircleShape).clickable { pictures.remove(p) }) {
-                        Icon(Icons.Outlined.Close, null, tint = Color.White, modifier = Modifier.padding(3.dp))
+                    IconButton({ pictures.remove(p) },
+                        modifier = Modifier.align(Alignment.TopEnd).size(48.dp),
+                        colors = IconButtonDefaults.iconButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)) {
+                        Icon(Icons.Outlined.Close, tr("Убрать вложение", "Remove attachment"), Modifier.size(24.dp)
+                            .background(MaterialTheme.colorScheme.surfaceContainerHighest, CircleShape).padding(3.dp))
                     }
                 }
             }
             TextField(
                 value = text, onValueChange = onText,
-                placeholder = { Text(tr("Сообщение", "Message")) },
+                label = { Text(tr("Ваша задача", "Your task")) },
+                placeholder = { Text(tr("Что изменить в проекте?", "What should change in the project?")) },
                 maxLines = 8,
                 colors = TextFieldDefaults.colors(
                     focusedContainerColor = Color.Transparent, unfocusedContainerColor = Color.Transparent,
@@ -662,7 +713,9 @@ private fun Composer(
                         Surface(
                             color = if (tools) MaterialTheme.colorScheme.secondaryContainer else Color.Transparent,
                             shape = RoundedCornerShape(18.dp),
-                            modifier = Modifier.clip(RoundedCornerShape(18.dp)).clickable { brain.setLocalTools(!tools) },
+                            modifier = Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(18.dp))
+                                .semantics { stateDescription = if (tools) tr("Агент", "Agent") else tr("Чат", "Chat") }
+                                .clickable(role = Role.Button) { brain.setLocalTools(!tools) },
                         ) {
                             Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                                 Icon(Icons.Outlined.Build, null, Modifier.size(16.dp))
@@ -671,13 +724,14 @@ private fun Composer(
                             }
                         }
                     }
-                    if (editing == null) FolderChip(brain)
                 }
             }
             Row(verticalAlignment = Alignment.CenterVertically) {
-                IconButton({ extras = !extras }) {
-                    Icon(Icons.Outlined.Add, if (extras) tr("Скрыть параметры сообщения", "Hide message options")
-                        else tr("Открыть параметры сообщения", "Open message options"))
+                TextButton({ extras = !extras }, modifier = Modifier.semantics {
+                    stateDescription = if (extras) tr("Развёрнуто", "Expanded") else tr("Свёрнуто", "Collapsed")
+                }) {
+                    Icon(if (extras) Icons.Outlined.ExpandLess else Icons.Outlined.Add, null, Modifier.size(20.dp))
+                    Text(tr("Параметры", "Options"), Modifier.padding(start = 4.dp))
                 }
                 Spacer(Modifier.weight(1f))
                 if (running) IconButton(stop) { Icon(Icons.Outlined.Stop, tr("Остановить", "Stop")) }
@@ -710,7 +764,8 @@ private fun ThinkingChip(brain: Brain, enabled: Boolean) {
         Surface(
             color = if (now.isEmpty()) Color.Transparent else MaterialTheme.colorScheme.secondaryContainer,
             shape = RoundedCornerShape(18.dp),
-            modifier = Modifier.clip(RoundedCornerShape(18.dp)).clickable(enabled = enabled) { menu = true },
+            modifier = Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(18.dp))
+                .clickable(enabled = enabled, role = Role.Button) { menu = true },
         ) {
             Row(Modifier.padding(horizontal = 10.dp, vertical = 7.dp), verticalAlignment = Alignment.CenterVertically) {
                 Icon(Icons.Outlined.Psychology, null, Modifier.size(18.dp))

@@ -9,29 +9,32 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
 private val Graphite = darkColorScheme(
-    primary = Color(0xFFE7E7E7), onPrimary = Color(0xFF191919),
-    primaryContainer = Color(0xFF343434), onPrimaryContainer = Color(0xFFF4F4F4),
-    secondary = Color(0xFFC8C8C8), onSecondary = Color(0xFF202020),
-    secondaryContainer = Color(0xFF303030), onSecondaryContainer = Color(0xFFE9E9E9),
-    tertiary = Color(0xFFB9B9B9), onTertiary = Color(0xFF212121),
-    tertiaryContainer = Color(0xFF383838), onTertiaryContainer = Color(0xFFEAEAEA),
-    background = Color(0xFF101010), onBackground = Color(0xFFF1F1F1),
-    surface = Color(0xFF101010), onSurface = Color(0xFFF1F1F1),
-    surfaceVariant = Color(0xFF303030), onSurfaceVariant = Color(0xFFBDBDBD),
-    surfaceContainerLowest = Color(0xFF080808), surfaceContainerLow = Color(0xFF171717),
-    surfaceContainer = Color(0xFF202020), surfaceContainerHigh = Color(0xFF282828),
-    surfaceContainerHighest = Color(0xFF333333),
-    outline = Color(0xFF929292), outlineVariant = Color(0xFF484848),
-    inverseSurface = Color(0xFFE7E7E7), inverseOnSurface = Color(0xFF1A1A1A),
-    inversePrimary = Color(0xFF525252), surfaceTint = Color(0xFFD0D0D0),
-    error = Color(0xFFF0F0F0), onError = Color(0xFF2B2B2B),
-    errorContainer = Color(0xFF424242), onErrorContainer = Color(0xFFFAFAFA),
+    primary = Color(0xFFB5C8FF), onPrimary = Color(0xFF152B58),
+    primaryContainer = Color(0xFF293E68), onPrimaryContainer = Color(0xFFDFE7FF),
+    secondary = Color(0xFFC0C9DD), onSecondary = Color(0xFF273143),
+    secondaryContainer = Color(0xFF2B3446), onSecondaryContainer = Color(0xFFE3E9F6),
+    tertiary = Color(0xFFACCFC4), onTertiary = Color(0xFF16382F),
+    tertiaryContainer = Color(0xFF2D4F45), onTertiaryContainer = Color(0xFFC8EBDD),
+    background = Color(0xFF14161C), onBackground = Color(0xFFF4F5F7),
+    surface = Color(0xFF14161C), onSurface = Color(0xFFF4F5F7),
+    surfaceVariant = Color(0xFF303541), onSurfaceVariant = Color(0xFFB8C0CF),
+    surfaceContainerLowest = Color(0xFF0F1116), surfaceContainerLow = Color(0xFF191C23),
+    surfaceContainer = Color(0xFF1D2028), surfaceContainerHigh = Color(0xFF252A34),
+    surfaceContainerHighest = Color(0xFF303541),
+    outline = Color(0xFF909AAA), outlineVariant = Color(0xFF424A59),
+    inverseSurface = Color(0xFFE3E6ED), inverseOnSurface = Color(0xFF292D36),
+    inversePrimary = Color(0xFF405D99), surfaceTint = Color(0xFFB5C8FF),
+    error = Color(0xFFFFB4AB), onError = Color(0xFF690005),
+    errorContainer = Color(0xFF532523), onErrorContainer = Color(0xFFFFDAD6),
 )
 
 private val SbandTypography = Typography().let {
     it.copy(
         headlineSmall = it.headlineSmall.copy(fontWeight = FontWeight.SemiBold, letterSpacing = (-0.35).sp),
         titleLarge = it.titleLarge.copy(fontWeight = FontWeight.SemiBold),
+        titleMedium = it.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+        bodyLarge = it.bodyLarge.copy(lineHeight = 25.sp),
+        bodyMedium = it.bodyMedium.copy(lineHeight = 21.sp),
         labelLarge = it.labelLarge.copy(fontWeight = FontWeight.Medium, letterSpacing = 0.1.sp),
     )
 }
