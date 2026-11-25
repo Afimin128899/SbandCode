@@ -21,9 +21,7 @@ Android 9 and up, arm64 only. No root. Provider credentials and chat history are
 
 ## What it does
 
-Use the Chat, Tools, and Settings tabs to switch between your conversation, project tools, and app preferences. The chat header opens history or the model picker. The working folder is visible above the message field; **Options** opens attachments and model options. Example tasks fill a draft without sending it. Each chat in history has a visible menu for renaming, exporting or deleting it.
-
-Settings groups connections, project preferences and chat backups. Configuration, engine restart and deleting all chats are under **Advanced settings**. See [interface notes and verification](docs/INTERFACE.md) (Russian).
+Use the Chat, Tools, and Settings tabs to switch between your conversation, project tools, and app preferences. The chat header opens history or the model picker. The plus button in the composer opens attachments, model options, and the working directory.
 
 - Review the files changed in the latest agent turn, copy a patch, or reverse a Git patch when the edited file still matches.
 - Search chat titles and messages by project, fork a chat at a message, and share text or a file from Android to a new or current chat.
@@ -109,7 +107,7 @@ you sign in with an OpenCode account, not with a key alone.
 <details>
 <summary><b>Chats: export and import</b></summary>
 
-Any chat can be saved to a file in opencode's own transfer format and loaded back. Use **Settings → Chats and backup** to back up and restore all chats in one file. Restoration skips existing chat IDs.
+Any chat can be saved to a file in opencode's own transfer format and loaded back. Use **Settings → Data** to back up and restore all chats in one file. Restoration skips existing chat IDs.
 
 </details>
 

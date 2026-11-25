@@ -7,7 +7,7 @@ import android.provider.Settings
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -19,24 +19,9 @@ import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.outlined.Api
-import androidx.compose.material.icons.outlined.CloudQueue
-import androidx.compose.material.icons.outlined.DataUsage
-import androidx.compose.material.icons.outlined.DeleteOutline
-import androidx.compose.material.icons.outlined.Download
-import androidx.compose.material.icons.outlined.ExpandLess
-import androidx.compose.material.icons.outlined.ExpandMore
-import androidx.compose.material.icons.outlined.FolderOpen
-import androidx.compose.material.icons.outlined.Memory
-import androidx.compose.material.icons.outlined.NotificationsNone
-import androidx.compose.material.icons.outlined.RestartAlt
-import androidx.compose.material.icons.outlined.Settings
-import androidx.compose.material.icons.outlined.Upload
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Button
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -49,15 +34,10 @@ import kotlinx.coroutines.withContext
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalUriHandler
-import androidx.compose.ui.semantics.LiveRegionMode
-import androidx.compose.ui.semantics.liveRegion
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import app.sbandcode.android.BuildConfig
@@ -76,9 +56,6 @@ fun SettingsScreen(brain: Brain, back: () -> Unit) {
     val notifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
     var transferring by remember { mutableStateOf(false) }
     var transferMessage by remember { mutableStateOf<String?>(null) }
-    var advanced by rememberSaveable { mutableStateOf(false) }
-    var savingRules by remember { mutableStateOf(false) }
-    var rulesMessage by remember { mutableStateOf<String?>(null) }
     fun transfer(action: suspend () -> String) {
         if (transferring) return
         transferring = true
@@ -114,107 +91,66 @@ fun SettingsScreen(brain: Brain, back: () -> Unit) {
     }
     Page(tr("Настройки", "Settings"), back) { mod ->
         Column(mod.verticalScroll(rememberScrollState()).navigationBarsPadding().imePadding()) {
-            Text(tr("Подключите модель, выберите рабочую папку и настройте агента под себя.",
-                "Connect a model, choose a working folder and make the agent your own."),
-                style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 16.dp))
             Section(tr("Модели и подключение", "Models and connections"))
-            ActionRow(tr("Подписки и ключи API", "Subscriptions and API keys"),
-                tr("OpenAI, Claude, OpenCode и другие провайдеры", "OpenAI, Claude, OpenCode and other providers"),
-                Icons.Outlined.CloudQueue, { brain.screens.add("providers") })
-            ActionRow(tr("Свой API и модели", "Custom API and models"),
-                tr("Подключение по адресу сервера и ключу", "Connect with a server address and key"),
-                Icons.Outlined.Api, { brain.screens.add("custom-api") })
-            ActionRow(tr("Модели на телефоне", "On-device models"),
-                tr("Загрузка и запуск локальных моделей", "Download and run local models"),
-                Icons.Outlined.Memory, { brain.screens.add("local") })
-            ActionRow(tr("Лимиты и использование", "Limits and usage"),
-                tr("Расход токенов и доступные лимиты", "Token usage and available limits"),
-                Icons.Outlined.DataUsage, { brain.screens.add("limits") })
+            for ((destination, label) in listOf(
+                "custom-api" to tr("Свой API и модели", "Custom API and models"),
+                "providers" to tr("Провайдеры и ключи API", "Providers and API keys"),
+                "local" to tr("Локальные модели", "Local models"),
+                "limits" to tr("Лимиты и использование", "Limits and usage"),
+            )) {
+                TextButton({ brain.screens.add(destination) }, Modifier.padding(start = 12.dp)) { Text(label) }
+            }
 
-            Section(tr("Работа с проектом", "Working with a project"))
-            var folders by remember { mutableStateOf(false) }
-            ActionRow(tr("Папка для новых чатов", "Folder for new chats"),
-                brain.folderLabel(brain.folder().absolutePath), Icons.Outlined.FolderOpen, { folders = true })
-            if (folders) FolderDialog(brain) { folders = false }
             Section(tr("Уведомления", "Notifications"))
-            ActionRow(tr("Уведомления агента", "Agent notifications"),
-                tr("Когда задача завершена или нужно разрешение", "When a task finishes or permission is needed"),
-                Icons.Outlined.NotificationsNone, {
+            TextButton({
                 if (Build.VERSION.SDK_INT >= 33 &&
                     context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != android.content.pm.PackageManager.PERMISSION_GRANTED) {
                     notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
                 } else openNotifications()
-            })
+            }, Modifier.padding(start = 12.dp)) {
+                Text(tr("Уведомления о завершении и разрешениях", "Completion and permission notifications"))
+            }
 
             Section(tr("Правила для модели", "Rules for the model"))
-            Text(tr("Как отвечать и работать с кодом во всех чатах. Сохраняется в общем AGENTS.md.",
-                "How to respond and work with code in every chat. Saved in the global AGENTS.md."),
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            Text(tr("Общий AGENTS.md opencode: что модель должна помнить в каждом чате.",
+                "opencode's global AGENTS.md: what the model keeps in mind in every chat."),
+                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(horizontal = 24.dp, vertical = 4.dp))
             rules?.let { r ->
-                OutlinedTextField(r, { rules = it; rulesMessage = null }, enabled = !savingRules, minLines = 3, maxLines = 12,
-                    label = { Text(tr("Инструкции для агента", "Agent instructions")) },
+                OutlinedTextField(r, { rules = it }, minLines = 3, maxLines = 12,
                     placeholder = { Text(tr("Например: отвечай кратко и по-русски", "For example: answer briefly")) },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp))
-                Button({
-                    savingRules = true
-                    scope.launch {
-                        try {
-                            brain.saveRules(r)
-                            rulesMessage = tr("Правила сохранены", "Rules saved")
-                        } catch (e: CancellationException) {
-                            throw e
-                        } catch (e: Exception) {
-                            rulesMessage = tr("Не удалось сохранить правила: ", "Could not save rules: ") + e.message.orEmpty()
-                        } finally {
-                            savingRules = false
-                        }
-                    }
-                }, enabled = !savingRules, modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp)) {
-                    Text(if (savingRules) tr("Сохранение…", "Saving…") else tr("Сохранить правила", "Save rules"))
-                }
-                rulesMessage?.let {
-                    Text(it, style = MaterialTheme.typography.bodyMedium,
-                        modifier = Modifier.padding(horizontal = 24.dp).semantics { liveRegion = LiveRegionMode.Polite })
+                TextButton({ scope.launch { runCatching { brain.saveRules(r) } } }, Modifier.padding(start = 12.dp)) {
+                    Text(tr("Сохранить правила", "Save the rules"))
                 }
             }
 
-            Section(tr("Чаты и резервная копия", "Chats and backup"))
-            ActionRow(tr("Сохранить все чаты", "Back up all chats"),
-                tr("Экспорт в файл на телефоне", "Export to a file on your phone"),
-                Icons.Outlined.Download, { backup.launch("SbandCode-chats.json") },
-                enabled = brain.ready && !transferring && brain.sessions.isNotEmpty())
-            ActionRow(tr("Восстановить чаты", "Restore chats"),
-                tr("Добавить чаты из файла резервной копии", "Add chats from a backup file"),
-                Icons.Outlined.Upload, { restore.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
-                enabled = brain.ready && !transferring)
-            Column(Modifier.padding(horizontal = 24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Section(tr("Файлы", "Files"))
+            var folders by remember { mutableStateOf(false) }
+            Row(Modifier.fillMaxWidth().clickable { folders = true }.padding(horizontal = 24.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(tr("Папка для новых чатов", "Folder for new chats"))
+                    Text(brain.folderLabel(brain.folder().absolutePath), style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
+            if (folders) FolderDialog(brain) { folders = false }
+            Section(tr("Данные", "Data"))
+            Column(Modifier.padding(horizontal = 20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                OutlinedButton({ backup.launch("SbandCode-chats.json") },
+                    enabled = brain.ready && !transferring && brain.sessions.isNotEmpty()) {
+                    Text(tr("Сохранить все чаты", "Back up all chats"))
+                }
+                OutlinedButton({ restore.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
+                    enabled = brain.ready && !transferring) {
+                    Text(tr("Восстановить чаты из копии", "Restore chats from backup"))
+                }
                 if (transferring) Text(tr("Обработка чатов…", "Processing chats…"))
-                transferMessage?.let {
-                    Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-                }
-            }
-
-            TextButton({ advanced = !advanced }, Modifier.padding(horizontal = 12.dp, vertical = 12.dp).semantics {
-                stateDescription = if (advanced) tr("Развёрнуто", "Expanded") else tr("Свёрнуто", "Collapsed")
-            }) {
-                Text(tr("Дополнительные настройки", "Advanced settings"))
-                Icon(if (advanced) Icons.Outlined.ExpandLess else Icons.Outlined.ExpandMore, null)
-            }
-            AnimatedVisibility(advanced) {
-                Column {
-                    ActionRow(tr("Конфигурация opencode", "opencode configuration"),
-                        tr("Редактировать opencode.json вручную", "Edit opencode.json manually"),
-                        Icons.Outlined.Settings, { brain.screens.add("config") })
-                    ActionRow(tr("Перезапустить движок", "Restart the engine"),
-                        tr("Прервёт выполняющиеся задачи", "Interrupts running tasks"),
-                        Icons.Outlined.RestartAlt, { brain.restart() })
-                    ActionRow(tr("Удалить все чаты", "Delete all chats"),
-                        tr("Безвозвратно. Сначала сохраните резервную копию", "Permanent. Save a backup first"),
-                        Icons.Outlined.DeleteOutline, { wipe = true }, enabled = brain.sessions.isNotEmpty(), destructive = true)
-                }
+                transferMessage?.let { Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                OutlinedButton({ brain.screens.add("config") }) { Text(tr("Настройки opencode (opencode.json)", "opencode settings (opencode.json)")) }
+                OutlinedButton({ brain.restart() }) { Text(tr("Перезапустить opencode", "Restart opencode")) }
+                OutlinedButton({ wipe = true }, enabled = brain.sessions.isNotEmpty()) { Text(tr("Удалить все чаты", "Delete every chat")) }
             }
 
             Section(tr("О приложении", "About"))
@@ -231,7 +167,7 @@ fun SettingsScreen(brain: Brain, back: () -> Unit) {
                     style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Text(tr("Лицензия MIT", "MIT license"),
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.outline)
-                Column {
+                Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton({ uri.openUri("https://github.com/Afimin128899/SbandCode") }) { Text("GitHub") }
                     TextButton({ uri.openUri("https://opencode.ai") }) { Text("opencode.ai") }
                     TextButton({ uri.openUri("https://models.dev") }) { Text("models.dev") }
@@ -245,9 +181,7 @@ fun SettingsScreen(brain: Brain, back: () -> Unit) {
         onDismissRequest = { wipe = false },
         title = { Text(tr("Удалить все чаты?", "Delete every chat?")) },
         text = { Text(tr("Вернуть их будет нельзя.", "They can't be brought back.")) },
-        confirmButton = { TextButton({ brain.sessions.toList().forEach { brain.delete(it) }; wipe = false }) {
-            Text(tr("Удалить", "Delete"), color = MaterialTheme.colorScheme.error)
-        } },
+        confirmButton = { TextButton({ brain.sessions.toList().forEach { brain.delete(it) }; wipe = false }) { Text(tr("Удалить", "Delete")) } },
         dismissButton = { TextButton({ wipe = false }) { Text(tr("Отмена", "Cancel")) } },
     )
 }

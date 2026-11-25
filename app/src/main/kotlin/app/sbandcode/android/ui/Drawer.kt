@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.requiredSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
@@ -24,15 +23,10 @@ import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.FileDownload
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
-import androidx.compose.material.icons.outlined.FileUpload
-import androidx.compose.material.icons.outlined.MoreVert
-import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
-import androidx.compose.material3.IconButton
-import androidx.compose.material3.Button
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalDrawerSheet
 import androidx.compose.material3.NavigationDrawerItem
@@ -51,10 +45,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.semantics.selected
-import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -66,7 +56,7 @@ import java.util.Calendar
 
 @Composable
 fun Logo(size: Int) {
-    Surface(color = MaterialTheme.colorScheme.surfaceContainerHighest, shape = RoundedCornerShape((size * 0.24f).dp),
+    Surface(color = androidx.compose.ui.graphics.Color(0xFF1B1B1B), shape = RoundedCornerShape((size * 0.24f).dp),
         modifier = Modifier.size(size.dp)) {
         // the drawable is the adaptive icon's 108 dp with the visible 72 in the middle
         Icon(painterResource(R.drawable.ic_launcher_foreground), null, tint = androidx.compose.ui.graphics.Color.Unspecified,
@@ -106,8 +96,7 @@ fun Drawer(brain: Brain, close: () -> Unit) {
     val load = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) { brain.importSession(uri); close() }
     }
-    ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow,
-        modifier = Modifier.widthIn(max = 360.dp).fillMaxWidth(0.9f)) {
+    ModalDrawerSheet(drawerContainerColor = MaterialTheme.colorScheme.surfaceContainerLow, modifier = Modifier.width(310.dp)) {
         Row(Modifier.fillMaxWidth().padding(horizontal = 20.dp, vertical = 18.dp),
             verticalAlignment = Alignment.CenterVertically) {
             Logo(42)
@@ -116,19 +105,19 @@ fun Drawer(brain: Brain, close: () -> Unit) {
         }
         LazyColumn(Modifier.weight(1f).padding(horizontal = 12.dp)) {
             item(key = "chat-actions") {
-                Button({ brain.openSession(null); close() }, Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 8.dp)) {
-                    Icon(Icons.Outlined.Add, null)
-                    Text(tr("Новый чат", "New chat"), Modifier.padding(start = 8.dp))
-                }
+                NavigationDrawerItem(
+                    label = { Text(tr("Новый чат", "New chat")) },
+                    icon = { Icon(Icons.Outlined.Add, null) },
+                    selected = false,
+                    onClick = { brain.openSession(null); close() },
+                )
                 NavigationDrawerItem(
                     label = { Text(tr("Поиск по чатам", "Search chats")) },
-                    icon = { Icon(Icons.Outlined.Search, null) },
                     selected = false,
                     onClick = { brain.screens.add("search"); close() },
                 )
                 NavigationDrawerItem(
                     label = { Text(tr("Импорт чата", "Import chat")) },
-                    icon = { Icon(Icons.Outlined.FileUpload, null) },
                     selected = false,
                     onClick = { load.launch(arrayOf("application/json", "text/plain", "application/octet-stream")) },
                 )
@@ -150,30 +139,18 @@ fun Drawer(brain: Brain, close: () -> Unit) {
                     Box {
                         Surface(
                             color = if (selected) MaterialTheme.colorScheme.secondaryContainer else androidx.compose.ui.graphics.Color.Transparent,
-                            shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).semantics {
-                                this.selected = selected
-                                if (brain.busy[chat.id] == true) stateDescription = tr("Агент работает", "Agent is working")
-                            }.combinedClickable(
-                                role = Role.Button,
-                                onLongClickLabel = tr("Действия с чатом", "Chat actions"),
+                            shape = RoundedCornerShape(28.dp),
+                            modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(28.dp)).combinedClickable(
                                 onClick = { brain.openSession(chat.id); close() },
                                 onLongClick = { menu = true },
                             ),
                         ) {
-                            Row(Modifier.padding(start = 16.dp, end = 4.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Text(chat.title.ifEmpty { tr("Без названия", "Untitled") }, maxLines = 2, overflow = TextOverflow.Ellipsis,
-                                        style = MaterialTheme.typography.bodyLarge)
-                                    Text(brain.folderLabel(chat.directory), maxLines = 1, overflow = TextOverflow.Ellipsis,
-                                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                }
+                            Row(Modifier.padding(horizontal = 16.dp, vertical = 13.dp), verticalAlignment = Alignment.CenterVertically) {
+                                Text(chat.title.ifEmpty { tr("Без названия", "Untitled") }, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                    style = MaterialTheme.typography.bodyLarge, modifier = Modifier.weight(1f))
                                 if (brain.busy[chat.id] == true) {
                                     Spacer(Modifier.width(8.dp))
                                     Surface(color = MaterialTheme.colorScheme.primary, shape = CircleShape, modifier = Modifier.size(8.dp)) {}
-                                }
-                                IconButton({ menu = true }) {
-                                    Icon(Icons.Outlined.MoreVert, tr("Действия с чатом", "Chat actions"))
                                 }
                             }
                         }

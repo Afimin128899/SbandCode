@@ -7,4 +7,3 @@ local.properties
 keys/
 out/
 app/src/main/jniLibs/
-__pycache__/
