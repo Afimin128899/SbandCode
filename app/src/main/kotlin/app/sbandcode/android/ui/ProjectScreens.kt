@@ -4,6 +4,8 @@ import android.annotation.SuppressLint
 import android.graphics.Color
 import java.util.concurrent.atomic.AtomicReference
 import android.net.Uri
+import android.webkit.ConsoleMessage
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
 import android.webkit.WebView
@@ -43,6 +45,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalClipboardManager
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
@@ -195,6 +198,17 @@ fun GitScreen(brain: Brain, back: () -> Unit) {
     var destination by remember(git) { mutableStateOf<ProjectGit.GitHubDestination?>(null) }
     var send by remember(git) { mutableStateOf<ProjectGit.GitHubDestination?>(null) }
     var pushed by remember(git) { mutableStateOf<String?>(null) }
+    var diff by remember(git) { mutableStateOf<String?>(null) }
+    var checkpointFiles by remember(git) { mutableStateOf<List<String>?>(null) }
+    var restore by remember(git) { mutableStateOf<List<String>?>(null) }
+    var showClone by remember { mutableStateOf(false) }
+    var cloneUrl by rememberSaveable { mutableStateOf("") }
+    var showCloneFolder by remember { mutableStateOf(false) }
+    var prTarget by remember(git) { mutableStateOf<ProjectGit.GitHubDestination?>(null) }
+    var prBase by remember { mutableStateOf("") }
+    var prTitle by remember { mutableStateOf("") }
+    var prBody by remember { mutableStateOf("") }
+    val uriHandler = LocalUriHandler.current
     val agentRunning = brain.sessions.any { it.directory == directory.absolutePath && brain.isRunning(it.id) }
     val scope = rememberCoroutineScope()
 
@@ -225,6 +239,7 @@ fun GitScreen(brain: Brain, back: () -> Unit) {
         LazyColumn(mod.navigationBarsPadding().imePadding().padding(horizontal = 16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
             item {
                 Text(directory.absolutePath, style = MaterialTheme.typography.labelMedium)
+                TextButton({ showClone = true }, enabled = !pending) { Text(tr("Клонировать из GitHub", "Clone from GitHub")) }
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                     TextButton({ work() }, enabled = !pending) { Text(tr("Обновить", "Refresh")) }
                     TextButton({ brain.screens.add("github") }, enabled = !pending) {
@@ -238,6 +253,15 @@ fun GitScreen(brain: Brain, back: () -> Unit) {
                         Button({ send = target }, enabled = login != null && status?.history?.isNotBlank() == true && !pending && !agentRunning) {
                             Text(tr("Отправить ветку", "Push branch"))
                         }
+                        TextButton({
+                            work {
+                                prBase = git.defaultBase()
+                                val summary = git.pullRequestSummary(prBase)
+                                prTitle = summary.lineSequence().firstOrNull().orEmpty()
+                                prBody = summary.lineSequence().filter(String::isNotBlank).joinToString("\n") { "- $it" }.take(1800)
+                                prTarget = target
+                            }
+                        }, enabled = !pending && target.branch.isNotEmpty()) { Text(tr("Черновик pull request", "Pull request draft")) }
                     }
                 }
                 if (status != null && destination == null) Text(
@@ -252,6 +276,14 @@ fun GitScreen(brain: Brain, back: () -> Unit) {
                     Choice(tr("Ветка", "Branch"), value.branches.map { it to it }, value.branch) {
                         if (it != null && it != value.branch && !pending && !agentRunning) branch = it
                     }
+                    TextButton({ work { git.checkpoint(); checkpointFiles = emptyList() } },
+                        enabled = !pending && !agentRunning && checkpointFiles == null) {
+                        Text(tr("Создать контрольную точку", "Create checkpoint"))
+                    }
+                    TextButton({ work {
+                        checkpointFiles = git.checkpointFiles()
+                        if (checkpointFiles == null) error(tr("Сначала создайте контрольную точку", "Create a checkpoint first"))
+                    } }, enabled = !pending && !agentRunning) { Text(tr("Сравнить с контрольной точкой", "Compare with checkpoint")) }
                     Section(tr("Изменения", "Changes"))
                     if (value.changes.isEmpty()) Text(tr("Рабочая копия чистая", "Working tree is clean"))
                 }
@@ -265,6 +297,10 @@ fun GitScreen(brain: Brain, back: () -> Unit) {
                 }
             }
             if (status != null) item {
+                TextButton({
+                    val paths = selected.toList()
+                    work { diff = git.diff(paths).ifBlank { tr("Для выбранных файлов нет текстового diff", "No text diff for selected files") } }
+                }, enabled = selected.isNotEmpty() && !pending) { Text(tr("Посмотреть diff выбранных файлов", "Review selected diff")) }
                 OutlinedTextField(commit, { commit = it }, modifier = Modifier.fillMaxWidth(),
                     label = { Text(tr("Сообщение коммита", "Commit message")) })
                 TextButton({ suggest = true }, enabled = selected.isNotEmpty() && !pending && brain.currentModel() != null) {
@@ -280,6 +316,76 @@ fun GitScreen(brain: Brain, back: () -> Unit) {
                 SelectionContainer { Text(status?.history.orEmpty(), fontFamily = FontFamily.Monospace) }
             }
         }
+    }
+    diff?.let { patch ->
+        AlertDialog(onDismissRequest = { diff = null }, title = { Text(tr("Изменения в выбранных файлах", "Selected changes")) },
+            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+                SelectionContainer { Text(patch, fontFamily = FontFamily.Monospace) }
+            } }, confirmButton = { TextButton({ diff = null }) { Text(tr("Закрыть", "Close")) } })
+    }
+    checkpointFiles?.let { paths ->
+        if (restore == null) AlertDialog(onDismissRequest = { checkpointFiles = null },
+            title = { Text(tr("Контрольная точка", "Checkpoint")) },
+            text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+                if (paths.isEmpty()) Text(tr("Рабочие файлы совпадают с точкой", "Working files match the checkpoint"))
+                paths.forEach { path ->
+                    TextButton({ restore = listOf(path) }, enabled = !agentRunning && !pending) { Text(path) }
+                }
+            } },
+            confirmButton = { TextButton({ restore = paths }, enabled = paths.isNotEmpty() && !agentRunning && !pending) {
+                Text(tr("Восстановить всё", "Restore all"))
+            } },
+            dismissButton = { TextButton({ checkpointFiles = null }) { Text(tr("Закрыть", "Close")) } })
+    }
+    restore?.let { paths ->
+        AlertDialog(onDismissRequest = { restore = null }, title = { Text(tr("Восстановить файлы?", "Restore files?")) },
+            text = { Text(tr("Изменения после контрольной точки в этих файлах будут отменены.",
+                "Changes since the checkpoint in these files will be reverted.")) },
+            confirmButton = { TextButton({
+                restore = null
+                checkpointFiles = null
+                work { git.restoreCheckpoint(paths); checkpointFiles = git.checkpointFiles() }
+            }, enabled = !agentRunning && !pending) { Text(tr("Восстановить", "Restore")) } },
+            dismissButton = { TextButton({ restore = null }) { Text(tr("Отмена", "Cancel")) } })
+    }
+    if (showCloneFolder) FolderDialog(brain) { showCloneFolder = false }
+    if (showClone && !showCloneFolder) AlertDialog(onDismissRequest = { showClone = false },
+        title = { Text(tr("Клонировать репозиторий", "Clone repository")) },
+        text = { Column {
+            OutlinedTextField(cloneUrl, { cloneUrl = it }, label = { Text("GitHub URL") }, singleLine = true)
+            TextButton({ showCloneFolder = true }) { Text(brain.folder().absolutePath) }
+            Text(tr("Клон будет создан в новой подпапке. Поддерживаются публичные репозитории.",
+                "A new subfolder will be created. Public repositories are supported."))
+        } },
+        confirmButton = { TextButton({
+            showClone = false
+            val parent = brain.folder()
+            work {
+                val project = ProjectGit(parent, brain.linux).cloneGitHub(cloneUrl)
+                brain.update { it.copy(folder = project.absolutePath) }
+                brain.openSession(null)
+                brain.screens.clear()
+            }
+        }, enabled = cloneUrl.isNotBlank() && !pending) { Text(tr("Клонировать", "Clone")) } },
+        dismissButton = { TextButton({ showClone = false }) { Text(tr("Отмена", "Cancel")) } })
+    prTarget?.let { target ->
+        AlertDialog(onDismissRequest = { prTarget = null }, title = { Text(tr("Черновик pull request", "Pull request draft")) },
+            text = { Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text("${target.repository} · ${target.branch}")
+                OutlinedTextField(prBase, { prBase = it }, label = { Text(tr("Целевая ветка", "Base branch")) }, singleLine = true)
+                OutlinedTextField(prTitle, { prTitle = it }, label = { Text(tr("Заголовок", "Title")) }, singleLine = true)
+                OutlinedTextField(prBody, { prBody = it }, label = { Text(tr("Описание", "Description")) }, maxLines = 8)
+            } },
+            confirmButton = { TextButton({
+                val compare = Uri.parse("https://github.com/${target.repository}/compare/${Uri.encode(prBase.trim())}...${Uri.encode(target.branch)}")
+                    .buildUpon().appendQueryParameter("expand", "1")
+                    .appendQueryParameter("title", prTitle.take(150)).appendQueryParameter("body", prBody.take(1800)).build()
+                runCatching { uriHandler.openUri(compare.toString()) }
+                    .onSuccess { prTarget = null }.onFailure { prTarget = null; problem = it.message }
+            }, enabled = prTitle.isNotBlank() && prBase.isNotBlank() && prBase.trim() != target.branch) {
+                Text(tr("Открыть на GitHub", "Open in GitHub"))
+            } },
+            dismissButton = { TextButton({ prTarget = null }) { Text(tr("Отмена", "Cancel")) } })
     }
     send?.let { target ->
         AlertDialog(
@@ -429,6 +535,8 @@ private fun samePreviewOrigin(origin: Uri?, request: Uri): Boolean {
 fun PreviewScreen(brain: Brain, back: () -> Unit) {
     var address by rememberSaveable { mutableStateOf(brain.previewUrl ?: "http://127.0.0.1:3000") }
     val previewOrigin = remember { AtomicReference<Uri?>() }
+    val console = remember { mutableStateListOf<String>() }
+    var showConsole by remember { mutableStateOf(false) }
     var refresh by remember { mutableStateOf(0) }
     var error by remember { mutableStateOf(false) }
     Page(tr("Веб-предпросмотр", "Web preview"), back) { mod ->
@@ -444,6 +552,9 @@ fun PreviewScreen(brain: Brain, back: () -> Unit) {
                     refresh++
                 }
             }, Modifier.padding(horizontal = 12.dp)) { Text(tr("Открыть / обновить", "Open / refresh")) }
+            TextButton({ showConsole = true }, enabled = console.isNotEmpty(), modifier = Modifier.padding(horizontal = 12.dp)) {
+                Text(tr("Консоль (${console.size})", "Console (${console.size})"))
+            }
             brain.previewUrl?.let { url ->
                 AndroidView(
                     factory = { context ->
@@ -453,6 +564,13 @@ fun PreviewScreen(brain: Brain, back: () -> Unit) {
                             settings.domStorageEnabled = true
                             settings.allowFileAccess = false
                             settings.allowContentAccess = false
+                            webChromeClient = object : WebChromeClient() {
+                                override fun onConsoleMessage(message: ConsoleMessage): Boolean {
+                                    if (console.size >= 100) console.removeAt(0)
+                                    console.add("${message.messageLevel()}:${message.lineNumber()} ${message.message().take(800)}")
+                                    return true
+                                }
+                            }
                             webViewClient = object : WebViewClient() {
                                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest) =
                                     !samePreviewOrigin(previewOrigin.get(), request.url)
@@ -469,6 +587,7 @@ fun PreviewScreen(brain: Brain, back: () -> Unit) {
                         val key = url to refresh
                         if (web.tag != key) {
                             web.tag = key
+                            console.clear()
                             previewOrigin.set(Uri.parse(url))
                             web.loadUrl(url)
                         }
@@ -477,4 +596,16 @@ fun PreviewScreen(brain: Brain, back: () -> Unit) {
             }
         }
     }
+    if (showConsole) AlertDialog(onDismissRequest = { showConsole = false },
+        title = { Text(tr("Консоль сайта", "Site console")) },
+        text = { Column(Modifier.verticalScroll(rememberScrollState())) {
+            SelectionContainer { Text(console.joinToString("\n"), fontFamily = FontFamily.Monospace) }
+        } },
+        confirmButton = { TextButton({
+            brain.shared = (tr("Консоль веб-предпросмотра", "Web preview console") + "\n" +
+                console.takeLast(25).joinToString("\n").takeLast(6000)) to emptyList()
+            brain.screens.clear()
+        }, enabled = console.isNotEmpty()) { Text(tr("Добавить в черновик чата", "Add to chat draft")) } },
+        dismissButton = { TextButton({ showConsole = false }) { Text(tr("Закрыть", "Close")) } })
+
 }

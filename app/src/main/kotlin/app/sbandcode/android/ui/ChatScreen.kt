@@ -62,8 +62,6 @@ import androidx.compose.material.icons.outlined.ExpandMore
 import androidx.compose.material.icons.outlined.KeyboardArrowDown
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.Menu
-import androidx.compose.runtime.saveable.listSaver
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material.icons.outlined.Psychology
 import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material.icons.outlined.Stop
@@ -98,6 +96,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
+import androidx.compose.material3.OutlinedTextField
+import kotlinx.coroutines.CancellationException
+import java.io.File
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -146,11 +148,19 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
     val retry = brain.retryProgress(id).takeIf { running }
     var picker by remember { mutableStateOf(false) }
     var showQueue by remember(id) { mutableStateOf(false) }
-    var text by rememberSaveable(id) { mutableStateOf("") }
-    val pictures = rememberSaveable(id, saver = listSaver(
-        save = { it.toList() },
-        restore = { mutableStateListOf(*it.toTypedArray()) },
-    )) { mutableStateListOf<String>() }
+    val directory = brain.session()?.directory ?: brain.folder().absolutePath
+    val draftKey = id ?: "new:$directory"
+    val draft = remember(draftKey) { brain.draft(id) }
+    var text by remember(draftKey) { mutableStateOf(draft.first) }
+    val pictures = remember(draftKey) { mutableStateListOf(*draft.second.toTypedArray()) }
+    LaunchedEffect(draftKey) {
+        snapshotFlow { text to pictures.toList() }.collect { (body, files) -> brain.saveDraft(draftKey, body, files) }
+    }
+    var showTemplates by remember(directory) { mutableStateOf(false) }
+    var template by remember(directory) { mutableStateOf("") }
+    var templates by remember(directory) { mutableStateOf(brain.templates(directory)) }
+    var planning by remember(draftKey) { mutableStateOf(false) }
+    var approvedPlan by remember(draftKey) { mutableStateOf<Pair<String, String>?>(null) }
     var editing by remember(id) { mutableStateOf<Message?>(null) }
     var editedText by remember(id) { mutableStateOf("") }
     val scope = rememberCoroutineScope()
@@ -309,6 +319,23 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
             editing = editing,
             cancelEdit = { editing = null; editedText = "" },
             running = running,
+            openTemplates = { showTemplates = true },
+            plan = if (editing == null && !running && text.isNotBlank() && model != null && brain.ready && !planning) ({
+                val task = text
+                planning = true
+                scope.launch {
+                    try {
+                        val response = brain.plan(File(directory), task)
+                        if (brain.open == id) approvedPlan = task to response
+                    } catch (failure: CancellationException) {
+                        throw failure
+                    } catch (failure: Exception) {
+                        brain.notice = failure.message ?: tr("Не удалось составить план", "Could not prepare a plan")
+                    } finally {
+                        planning = false
+                    }
+                }
+            }) else null,
             onPick = { uris -> scope.launch { for (u in uris) brain.importPicture(u)?.let { pictures += it } } },
             onFiles = { uris -> scope.launch {
                 val files = uris.mapNotNull { brain.importSharedFile(it) }
@@ -326,11 +353,52 @@ fun ChatScreen(brain: Brain, openDrawer: () -> Unit) {
                     brain.send(text, pictures.toList())
                     text = ""
                     pictures.clear()
+                    brain.saveDraft(draftKey, "", emptyList())
                 }
             },
             stop = { brain.stop() },
         )
     }
+
+    if (planning) AlertDialog(onDismissRequest = {}, title = { Text(tr("Модель составляет план", "Preparing a plan")) },
+        text = { CircularProgressIndicator() }, confirmButton = {})
+    approvedPlan?.let { (task, plan) ->
+        AlertDialog(onDismissRequest = { approvedPlan = null },
+            title = { Text(tr("План задачи", "Task plan")) },
+            text = { Column(Modifier.verticalScroll(rememberScrollState())) { SelectionContainer { Text(plan) } } },
+            confirmButton = { TextButton({
+                approvedPlan = null
+                brain.send("$task\n\n" + tr("Согласованный план:\n", "Approved plan:\n") + plan, pictures.toList())
+                text = ""
+                pictures.clear()
+                brain.saveDraft(draftKey, "", emptyList())
+            }, enabled = !running && brain.ready && brain.currentModel() != null) { Text(tr("Выполнить", "Implement")) } },
+            dismissButton = { TextButton({ approvedPlan = null }) { Text(tr("Отмена", "Cancel")) } })
+    }
+    if (showTemplates) AlertDialog(onDismissRequest = { showTemplates = false },
+        title = { Text(tr("Шаблоны проекта", "Project templates")) },
+        text = {
+            Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                templates.forEachIndexed { index, value ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        TextButton({
+                            text = listOf(text, value).filter(String::isNotBlank).joinToString("\n\n")
+                            showTemplates = false
+                        }, Modifier.weight(1f)) { Text(value, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                        IconButton({
+                            templates = templates.filterIndexed { i, _ -> i != index }
+                            brain.saveTemplates(directory, templates)
+                        }) { Icon(Icons.Outlined.Close, tr("Удалить шаблон", "Remove template")) }
+                    }
+                }
+                OutlinedTextField(template, { template = it }, label = { Text(tr("Новый шаблон", "New template")) })
+                TextButton({
+                    templates = templates + template.trim()
+                    brain.saveTemplates(directory, templates)
+                    template = ""
+                }, enabled = template.isNotBlank()) { Text(tr("Сохранить шаблон", "Save template")) }
+            }
+        }, confirmButton = { TextButton({ showTemplates = false }) { Text(tr("Закрыть", "Close")) } })
 
     if (picker) ModelSheet(brain) { picker = false }
     if (showQueue && id != null) FollowUpQueue(brain, id) { showQueue = false }
@@ -750,6 +818,8 @@ private fun Composer(
     editing: Message?,
     cancelEdit: () -> Unit,
     running: Boolean,
+    openTemplates: () -> Unit,
+    plan: (() -> Unit)?,
     onPick: (List<android.net.Uri>) -> Unit,
     onFiles: (List<android.net.Uri>) -> Unit,
     send: () -> Unit,
@@ -819,6 +889,12 @@ private fun Composer(
             style = MaterialTheme.typography.titleLarge)
         Column(Modifier.padding(start = 12.dp, end = 12.dp, bottom = 14.dp).verticalScroll(rememberScrollState()).graphitePanel()) {
             if (editing == null) {
+                ListItem(headlineContent = { Text(tr("Шаблоны проекта", "Project templates")) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable { extras = false; openTemplates() })
+                if (plan != null) ListItem(headlineContent = { Text(tr("Сначала план", "Plan first")) },
+                    colors = ListItemDefaults.colors(containerColor = Color.Transparent),
+                    modifier = Modifier.clickable { extras = false; plan() })
                 ListItem(headlineContent = { Text(tr("Добавить файлы", "Add files")) },
                     leadingContent = { Icon(Icons.Outlined.AttachFile, null) }, colors = ListItemDefaults.colors(containerColor = Color.Transparent),
                     modifier = Modifier.clickable { extras = false; files.launch(arrayOf("*/*")) })

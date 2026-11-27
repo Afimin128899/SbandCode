@@ -97,6 +97,84 @@ class ProjectGit(
         }
     }
 
+    suspend fun canCheckpoint(): Boolean = linux.installed &&
+        git("rev-parse", "--show-toplevel", allowFailure = true).isNotBlank()
+
+    private suspend fun checkpointRef(): String {
+        val branch = git("symbolic-ref", "--quiet", "HEAD", allowFailure = true).trim()
+        val revision = branch.ifEmpty { "detached/" + git("rev-parse", "HEAD").trim() }
+        return "refs/sbandcode/checkpoints/$revision"
+    }
+
+    suspend fun checkpoint() {
+        git("update-ref", checkpointRef(), workingTree())
+    }
+
+    suspend fun checkpointFiles(): List<String>? {
+        val saved = git("rev-parse", "--verify", checkpointRef(), allowFailure = true).trim().ifEmpty { return null }
+        return git("diff", "--no-renames", "--name-only", "-z", saved, workingTree())
+            .split('\u0000').filter(String::isNotEmpty)
+    }
+
+    suspend fun restoreCheckpoint(paths: List<String>) {
+        require(paths.isNotEmpty())
+        val root = File(git("rev-parse", "--show-toplevel").trim())
+        val repository = ProjectGit(root, linux)
+        val saved = repository.git("rev-parse", "--verify", repository.checkpointRef()).trim()
+        val working = repository.workingTree()
+        val patch = repository.git("diff", "--binary", "--full-index", "--no-ext-diff", "--no-textconv",
+            "--no-renames", saved, working, "--", *paths.map { ":(top,literal)$it" }.toTypedArray())
+        check(patch.isNotBlank()) { tr("Эти файлы уже совпадают с точкой", "Those files already match the checkpoint") }
+        repository.git("apply", "--reverse", "--check", "-", input = patch)
+        check(repository.workingTree() == working) { tr("Рабочие файлы изменились. Повторите сравнение.", "Working files changed. Compare again.") }
+        repository.git("apply", "--reverse", "-", input = patch)
+    }
+
+    private suspend fun workingTree(): String {
+        val env = linux.env(true)
+        check(env.isNotEmpty()) { tr("Установите Alpine и пакет git", "Install Alpine and the git package") }
+        val directory = File(env.getValue("SBANDCODE_CACHE"))
+        val realIndex = File(git("rev-parse", "--path-format=absolute", "--git-path", "index").trim())
+        val index = File.createTempFile("sband-index-", ".tmp", directory)
+        check(index.delete())
+        val environment = mapOf("GIT_INDEX_FILE" to index.absolutePath)
+        try {
+            if (realIndex.isFile) realIndex.copyTo(index)
+            else git("read-tree", "--empty", extraEnvironment = environment)
+            git("add", "-A", "--", ".", extraEnvironment = environment)
+            return git("write-tree", extraEnvironment = environment).trim()
+        } finally {
+            index.delete()
+            File(index.path + ".lock").delete()
+        }
+    }
+
+    suspend fun cloneGitHub(remote: String): File = runInterruptible(Dispatchers.IO) {
+        val repository = githubRepository(remote.trim())
+            ?: error(tr("Вставьте ссылку на репозиторий GitHub", "Paste a GitHub repository URL"))
+        val target = File(directory, repository.substringAfter('/'))
+        check(directory.isDirectory && !target.exists()) { tr("Папка уже существует или недоступна", "The folder already exists or is unavailable") }
+        val env = linux.env(true)
+        check(env.isNotEmpty()) { tr("Установите Alpine и пакет git", "Install Alpine and the git package") }
+        runGit(directory, env, listOf("clone", "--no-recurse-submodules", "--template=", "--",
+            "https://github.com/$repository.git", target.absolutePath), false, null,
+            extraEnvironment = mapOf("GIT_ALLOW_PROTOCOL" to "https"), timeoutSeconds = 180)
+        target
+    }
+
+    suspend fun defaultBase(): String = git("symbolic-ref", "--short", "refs/remotes/origin/HEAD", allowFailure = true)
+        .trim().removePrefix("origin/").ifEmpty { "main" }
+
+    suspend fun pullRequestSummary(base: String): String {
+        val baseRef = "refs/remotes/origin/$base"
+        val localBase = "refs/heads/$base"
+        val tracking = git("rev-parse", "--verify", baseRef, allowFailure = true).trim()
+        val fallback = git("rev-parse", "--verify", localBase, allowFailure = true).trim()
+        val sha = tracking.ifEmpty { fallback }
+        return if (sha.isNotEmpty()) git("log", "-12", "--format=%s%n%b", "$sha..HEAD").trim()
+            else git("log", "-1", "--format=%s%n%b").trim()
+    }
+
     suspend fun reverse(path: String, patch: String) {
         val root = File(git("rev-parse", "--show-toplevel").trim())
         val target = File(root, path)
