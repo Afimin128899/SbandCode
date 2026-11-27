@@ -128,6 +128,17 @@ fun ToolsScreen(brain: Brain, back: () -> Unit) {
                     }
                 }
                 val path = s.str("path").orEmpty()
+                var modelRef by remember(path) { mutableStateOf<String?>(null) }
+                LaunchedEffect(path, round) {
+                    modelRef = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                        readSkillModel(brain.skillsDir, path)
+                    }
+                }
+                brain.model(modelRef)?.let { model ->
+                    TextButton({ brain.pick(model) }) {
+                        Text(tr("Выбрать ${model.name}", "Select ${model.name}"), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
                 if (brain.removable(path)) IconButton({ work { brain.removeSkill(path) } }) {
                     Icon(Icons.Outlined.Delete, tr("Удалить", "Delete"))
                 }
@@ -216,3 +227,27 @@ private fun McpDialog(onDone: (String, JSONObject) -> Unit, onCancel: () -> Unit
         dismissButton = { TextButton(onCancel) { Text(tr("Отмена", "Cancel")) } },
     )
 }
+
+/** Optional front matter understood by the developer build. Values identify installed providers. */
+private fun readSkillModel(root: java.io.File, path: String): String? = runCatching {
+    val file = java.io.File(path).canonicalFile
+    if (!file.toPath().startsWith(root.canonicalFile.toPath()) || file.name != "SKILL.md" ||
+        !file.isFile || file.length() > 256 * 1024
+    ) return null
+    file.useLines { lines ->
+        val header = lines.iterator()
+        if (!header.hasNext() || header.next().trim() != "---") return@useLines null
+        var value: String? = null
+        while (header.hasNext()) {
+            val line = header.next()
+            if (line.trim() == "---") return@useLines value
+            if (line.startsWith("model:")) {
+                if (value != null) return@useLines null
+                val candidate = line.substringAfter(':').trim().removeSurrounding("\"").removeSurrounding("'")
+                if (!candidate.matches(Regex("[A-Za-z0-9_.-]+/[A-Za-z0-9_.:/-]+"))) return@useLines null
+                value = candidate
+            }
+        }
+        null
+    }
+}.getOrNull()
